@@ -1,0 +1,2391 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MoleCube UI Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef1f4;
+      --panel: #f8fafc;
+      --panel-strong: #ffffff;
+      --line: #d8dee6;
+      --line-soft: #e8edf2;
+      --text: #17202a;
+      --muted: #687483;
+      --faint: #8a96a5;
+      --green: #1f9d6a;
+      --green-soft: #dff4ea;
+      --blue: #3977d8;
+      --blue-soft: #e4efff;
+      --yellow: #c98a11;
+      --yellow-soft: #fff3cf;
+      --red: #ce3d3d;
+      --red-soft: #ffe2e0;
+      --ink: #24313f;
+      --radius: 8px;
+      --shadow: 0 18px 50px rgba(24, 36, 52, 0.12);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 1180px;
+      background: linear-gradient(180deg, #f4f6f8 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+
+    button, input {
+      font: inherit;
+    }
+
+    .window {
+      width: 1180px;
+      height: 780px;
+      margin: 28px auto;
+      display: grid;
+      grid-template-columns: 228px 1fr;
+      overflow: hidden;
+      border: 1px solid rgba(92, 108, 126, 0.28);
+      border-radius: 14px;
+      background: var(--panel-strong);
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 14px 12px;
+      border-right: 1px solid var(--line);
+      background: rgba(244, 247, 250, 0.86);
+    }
+
+    .traffic {
+      display: flex;
+      gap: 8px;
+      padding: 4px 4px 8px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .dot.red { background: #ff5f57; }
+    .dot.yellow { background: #ffbd2e; }
+    .dot.green { background: #28c840; }
+
+    .brand {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 10px;
+      align-items: center;
+      padding: 4px 6px 10px;
+    }
+
+    .logo {
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 9px;
+      color: #fff;
+      background: linear-gradient(135deg, #256f56 0%, #2f7fc5 100%);
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .brand p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 3px;
+    }
+
+    .nav a {
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 8px;
+      border-radius: 7px;
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 13px;
+    }
+
+    .nav a.active {
+      color: #fff;
+      background: #2f6fbe;
+    }
+
+    .nav a:not(.active):hover {
+      background: rgba(43, 76, 112, 0.08);
+    }
+
+    .ico {
+      display: grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: 0;
+      background: rgba(47, 111, 190, 0.12);
+      color: #2f6fbe;
+    }
+
+    .active .ico {
+      color: #2f6fbe;
+      background: #fff;
+    }
+
+    .badge {
+      min-width: 24px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(23, 32, 42, 0.08);
+      color: var(--muted);
+      text-align: center;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .active .badge {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.24);
+    }
+
+    .side-bottom {
+      margin-top: auto;
+      padding: 10px 8px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+      background: #fbfcfd;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 18px 22px 12px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .title h2 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 760;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .search {
+      width: 240px;
+      height: 34px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--text);
+      outline: none;
+    }
+
+    .language-select {
+      width: 132px;
+      height: 34px;
+      padding: 0 28px 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--ink);
+      background: #fff;
+      font-size: 13px;
+      font-weight: 650;
+      outline: none;
+    }
+
+    .btn {
+      height: 34px;
+      display: inline-grid;
+      grid-auto-flow: column;
+      gap: 7px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--ink);
+      background: #fff;
+      cursor: default;
+      font-weight: 650;
+      font-size: 13px;
+      transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 14px rgba(35, 48, 62, 0.12);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+      box-shadow: none;
+    }
+
+    .btn.primary {
+      border-color: #2f6fbe;
+      color: #fff;
+      background: #2f6fbe;
+    }
+
+    .btn.danger {
+      border-color: #d2554f;
+      color: #fff;
+      background: #d2554f;
+    }
+
+    .btn .symbol {
+      width: 16px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    .content {
+      min-height: 0;
+      overflow: auto;
+      padding: 18px 22px 24px;
+    }
+
+    .screen {
+      display: none;
+    }
+
+    .screen:target {
+      display: block;
+    }
+
+    body:not(:has(.screen:target)) #dashboard {
+      display: block;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid.cols-4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .grid.cols-3 {
+      grid-template-columns: 1.2fr 1fr 1fr;
+    }
+
+    .grid.cols-2 {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .dashboard-lower {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.95fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .panel {
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .panel.pad {
+      padding: 14px;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .panel-head h3 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .panel-head span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .metric {
+      display: grid;
+      gap: 8px;
+      min-height: 112px;
+      padding: 14px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: #fff;
+      animation: rise-in 420ms ease both;
+    }
+
+    .metric label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .metric strong {
+      font-size: 25px;
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .trend {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .meter {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #edf1f5;
+    }
+
+    .meter > i {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--blue);
+      transform-origin: left center;
+      animation: meter-in 760ms ease both;
+    }
+
+    .meter.green > i { background: var(--green); }
+    .meter.yellow > i { background: var(--yellow); }
+    .meter.red > i { background: var(--red); }
+
+    .health {
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      min-height: 286px;
+    }
+
+    .ring {
+      display: grid;
+      place-items: center;
+      padding: 18px 8px;
+    }
+
+    .ring-visual {
+      width: 128px;
+      height: 128px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, #fff 0 56%, transparent 57%),
+        conic-gradient(var(--green) 0 82%, #e9eef3 82% 100%);
+    }
+
+    body.is-scanning .ring-visual {
+      animation: scan-pulse 1.3s ease-in-out infinite;
+    }
+
+    .ring-visual strong {
+      font-size: 32px;
+      letter-spacing: 0;
+    }
+
+    .health-list {
+      display: grid;
+      gap: 10px;
+      padding: 18px 18px 18px 0;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+      min-height: 42px;
+      padding: 0 2px;
+    }
+
+    .row-title {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .row-title b {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .row-title small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pill {
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pill.green {
+      color: #166849;
+      background: var(--green-soft);
+    }
+
+    .pill.blue {
+      color: #265aa4;
+      background: var(--blue-soft);
+    }
+
+    .pill.yellow {
+      color: #8b5d07;
+      background: var(--yellow-soft);
+    }
+
+    .pill.red {
+      color: #a33131;
+      background: var(--red-soft);
+    }
+
+    .chart {
+      height: 172px;
+      display: flex;
+      gap: 5px;
+      align-items: end;
+      padding: 18px 14px 14px;
+    }
+
+    .chart i {
+      flex: 1;
+      min-width: 0;
+      border-radius: 3px 3px 0 0;
+      background: linear-gradient(180deg, #4a8be5 0%, #2f6fbe 100%);
+      animation: bar-breathe 1.8s ease-in-out infinite;
+    }
+
+    .chart i:nth-child(2n) { animation-delay: 180ms; }
+    .chart i:nth-child(3n) { animation-delay: 320ms; }
+
+    .clean-layout {
+      display: grid;
+      grid-template-columns: 1.28fr 0.72fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line-soft);
+      text-align: left;
+      font-size: 13px;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      background: #fbfcfd;
+    }
+
+    td {
+      color: var(--ink);
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .check {
+      width: 17px;
+      height: 17px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid #9eb0c3;
+      border-radius: 5px;
+      color: #fff;
+      background: #2f6fbe;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .check.off {
+      background: #fff;
+      color: transparent;
+    }
+
+    .path {
+      overflow: hidden;
+      color: var(--muted);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+
+    .summary-card {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .summary-card .amount {
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .notice {
+      padding: 11px 12px;
+      border-radius: var(--radius);
+      background: var(--yellow-soft);
+      color: #6e4b08;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .treemap {
+      height: 330px;
+      display: grid;
+      grid-template-columns: 1.25fr 0.8fr 0.55fr;
+      gap: 7px;
+      padding: 14px;
+    }
+
+    .tree-cell {
+      position: relative;
+      overflow: hidden;
+      border-radius: 7px;
+      color: #fff;
+      background: #2f6fbe;
+      min-height: 72px;
+      padding: 10px;
+    }
+
+    .tree-cell:nth-child(2) { background: #27966a; }
+    .tree-cell:nth-child(3) { background: #8a6fd1; }
+    .tree-cell:nth-child(4) { background: #cc7a35; }
+    .tree-cell:nth-child(5) { background: #557086; }
+    .tree-cell:nth-child(6) { background: #bb4f64; }
+
+    .tree-col {
+      display: grid;
+      gap: 7px;
+    }
+
+    .tree-col.split {
+      grid-template-rows: 1.2fr 0.8fr;
+    }
+
+    .tree-cell b {
+      display: block;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .tree-cell span {
+      position: absolute;
+      left: 10px;
+      bottom: 9px;
+      font-size: 12px;
+      opacity: 0.86;
+    }
+
+    .app-icon {
+      width: 28px;
+      height: 28px;
+      display: inline-grid;
+      place-items: center;
+      margin-right: 8px;
+      border-radius: 7px;
+      color: #fff;
+      background: #557086;
+      font-weight: 800;
+      vertical-align: middle;
+    }
+
+    .uninstall-workbench {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 14px;
+      align-items: stretch;
+      min-height: 560px;
+    }
+
+    .segmented {
+      display: inline-grid;
+      grid-auto-flow: column;
+      gap: 2px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f3f6f9;
+    }
+
+    .segment {
+      min-width: 84px;
+      height: 28px;
+      border: 0;
+      border-radius: 6px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .segment.active {
+      color: var(--ink);
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(37, 48, 62, 0.12);
+    }
+
+    .app-list {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      max-height: 468px;
+      overflow: auto;
+    }
+
+    .app-row {
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      min-height: 58px;
+      padding: 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: #fff;
+      text-align: left;
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+
+    .app-row:hover {
+      transform: translateY(-1px);
+      border-color: rgba(47, 111, 190, 0.28);
+      background: #fbfdff;
+    }
+
+    .app-row:focus {
+      outline: 2px solid rgba(47, 111, 190, 0.26);
+      outline-offset: 1px;
+    }
+
+    .app-row.selected {
+      border-color: rgba(47, 111, 190, 0.52);
+      background: var(--blue-soft);
+      box-shadow: inset 3px 0 0 #2f6fbe;
+    }
+
+    .app-row .app-icon {
+      width: 34px;
+      height: 34px;
+      margin-right: 0;
+    }
+
+    .app-meta {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .app-meta b,
+    .app-meta small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .app-meta b {
+      font-size: 13px;
+    }
+
+    .app-meta small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .size-stack {
+      display: grid;
+      gap: 3px;
+      justify-items: end;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .size-stack b {
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .uninstall-sidebar-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid var(--line-soft);
+      background: #fbfcfd;
+    }
+
+    .mini-stat {
+      display: grid;
+      gap: 4px;
+      padding: 9px;
+      border: 1px solid var(--line-soft);
+      border-radius: 7px;
+      background: #fff;
+    }
+
+    .uninstall-tools {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      padding: 12px 12px 0;
+    }
+
+    .uninstall-tools .segmented {
+      width: 100%;
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .uninstall-tools .segment {
+      min-width: 0;
+    }
+
+    .uninstall-tools .btn {
+      width: 100%;
+    }
+
+    .mini-stat b {
+      font-size: 15px;
+    }
+
+    .mini-stat small {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .app-detail {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      min-height: 560px;
+    }
+
+    .detail-hero {
+      display: grid;
+      grid-template-columns: 62px 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding: 16px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .detail-icon {
+      width: 62px;
+      height: 62px;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      color: #fff;
+      background: #27966a;
+      font-size: 26px;
+      font-weight: 850;
+    }
+
+    .detail-title {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .detail-title h3 {
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 19px;
+      letter-spacing: 0;
+    }
+
+    .detail-title p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .detail-score {
+      display: grid;
+      gap: 6px;
+      justify-items: end;
+      min-width: 132px;
+    }
+
+    .detail-score strong {
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+
+    .detail-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line-soft);
+      background: #fbfcfd;
+    }
+
+    .file-groups {
+      display: grid;
+      gap: 10px;
+      padding: 14px 16px;
+      overflow: auto;
+    }
+
+    .file-group {
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .file-group-head {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line-soft);
+      background: #fbfcfd;
+    }
+
+    .file-group-head b {
+      font-size: 13px;
+    }
+
+    .file-line {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line-soft);
+      font-size: 12px;
+    }
+
+    .file-line:last-child {
+      border-bottom: 0;
+    }
+
+    .file-line code {
+      overflow: hidden;
+      color: var(--muted);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+
+    .uninstall-actionbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 16px;
+      border-top: 1px solid var(--line-soft);
+      background: #fbfcfd;
+    }
+
+    .selection-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .uninstall-glow {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .uninstall-glow::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(100deg, transparent 0%, rgba(47, 111, 190, 0.08) 45%, transparent 70%);
+      transform: translateX(-100%);
+      animation: shimmer 3.4s ease-in-out infinite;
+    }
+
+    .settings {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .setting-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .setting-row:last-child {
+      border-bottom: 0;
+    }
+
+    .switch {
+      width: 42px;
+      height: 24px;
+      padding: 3px;
+      border-radius: 999px;
+      background: #2f6fbe;
+    }
+
+    .switch::after {
+      content: "";
+      display: block;
+      width: 18px;
+      height: 18px;
+      margin-left: 18px;
+      border-radius: 50%;
+      background: #fff;
+    }
+
+    .switch.off {
+      background: #c7d0da;
+    }
+
+    .switch.off::after {
+      margin-left: 0;
+    }
+
+    .scan-flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .scan-step {
+      min-height: 86px;
+      padding: 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: #fbfcfd;
+    }
+
+    .scan-step b {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .scan-step small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .scan-step.active {
+      border-color: rgba(47, 111, 190, 0.42);
+      background: var(--blue-soft);
+      box-shadow: inset 3px 0 0 #2f6fbe;
+    }
+
+    .scan-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(18, 26, 35, 0.28);
+      backdrop-filter: blur(10px);
+      z-index: 20;
+    }
+
+    .scan-overlay.open {
+      display: flex;
+      animation: fade-in 160ms ease both;
+    }
+
+    .scan-dialog {
+      width: 560px;
+      border: 1px solid rgba(215, 223, 232, 0.92);
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 24px 70px rgba(18, 26, 35, 0.22);
+      overflow: hidden;
+      animation: dialog-in 220ms ease both;
+    }
+
+    .scan-dialog-head {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: start;
+      padding: 18px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .scan-dialog-head h3 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .scan-dialog-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .icon-btn {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--muted);
+    }
+
+    .scan-body {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+    }
+
+    .scan-progress-main {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .scan-orbit {
+      width: 74px;
+      height: 74px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, #fff 0 50%, transparent 51%),
+        conic-gradient(#2f6fbe var(--scan-progress, 0%), #e9eef3 0 100%);
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .scan-orbit.running {
+      animation: scan-pulse 1.1s ease-in-out infinite;
+    }
+
+    .scan-copy {
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .scan-copy b {
+      font-size: 14px;
+    }
+
+    .scan-path {
+      overflow: hidden;
+      padding: 8px 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 7px;
+      background: #f7f9fb;
+      color: var(--muted);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .scan-queue {
+      display: grid;
+      gap: 8px;
+    }
+
+    .queue-item {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      gap: 9px;
+      align-items: center;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid var(--line-soft);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .queue-dot {
+      width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #edf2f7;
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .queue-item.running {
+      border-color: rgba(47, 111, 190, 0.38);
+      background: var(--blue-soft);
+    }
+
+    .queue-item.running .queue-dot {
+      background: #2f6fbe;
+      color: #fff;
+      animation: tiny-pulse 900ms ease-in-out infinite;
+    }
+
+    .queue-item.done .queue-dot {
+      background: var(--green);
+      color: #fff;
+    }
+
+    .queue-item small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .scan-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 14px 18px;
+      border-top: 1px solid var(--line-soft);
+      background: #fbfcfd;
+    }
+
+    .scan-note {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @keyframes rise-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes meter-in {
+      from { transform: scaleX(0); }
+      to { transform: scaleX(1); }
+    }
+
+    @keyframes bar-breathe {
+      0%, 100% { filter: saturate(1); transform: scaleY(1); }
+      50% { filter: saturate(1.2); transform: scaleY(1.06); }
+    }
+
+    @keyframes scan-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(47, 111, 190, 0.18); }
+      50% { box-shadow: 0 0 0 9px rgba(47, 111, 190, 0.04); }
+    }
+
+    @keyframes tiny-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.12); }
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes dialog-in {
+      from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes shimmer {
+      0%, 45% { transform: translateX(-100%); }
+      70%, 100% { transform: translateX(100%); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 1ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="window">
+    <aside class="sidebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+      </div>
+      <div class="brand">
+        <div class="logo">M</div>
+        <div>
+          <h1>MoleCube</h1>
+          <p>Mac 维护与清理</p>
+        </div>
+      </div>
+      <nav class="nav" aria-label="主导航">
+        <a class="active" href="#dashboard"><span class="ico">D</span><span>总览</span><span class="badge">82</span></a>
+        <a href="#clean"><span class="ico">C</span><span>清理预览</span><span class="badge">9</span></a>
+        <a href="#analyze"><span class="ico">A</span><span>磁盘分析</span><span></span></a>
+        <a href="#uninstall"><span class="ico">U</span><span>应用卸载</span><span class="badge">24</span></a>
+        <a href="#history"><span class="ico">H</span><span>操作历史</span><span></span></a>
+        <a href="#settings"><span class="ico">S</span><span>设置</span><span></span></a>
+      </nav>
+      <div class="side-bottom">
+        <b>安全模式开启</b><br>
+        默认先预览，不会直接删除。执行清理时继续使用 Mole 的 Trash 与保护规则。
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="toolbar">
+        <div class="title">
+          <h2>MoleCube 原型</h2>
+          <p>面向 macOS 的可视化清理、卸载、分析与状态监控工作台</p>
+        </div>
+        <div class="actions">
+          <input class="search" value="" placeholder="搜索应用、路径或历史" data-i18n-placeholder="搜索应用、路径或历史">
+          <select class="language-select" id="languageSelect" aria-label="语言">
+            <option value="zh-CN">简体中文</option>
+            <option value="zh-TW">繁體中文</option>
+            <option value="en">English</option>
+          </select>
+          <button class="btn"><span class="symbol">↻</span>刷新</button>
+          <button class="btn primary" id="startScanBtn"><span class="symbol">▶</span>开始扫描</button>
+        </div>
+      </header>
+
+      <section class="content">
+        <div class="screen" id="dashboard">
+          <div class="grid cols-4">
+            <div class="metric">
+              <label>健康分</label>
+              <strong>82</strong>
+              <div class="meter green"><i style="width:82%"></i></div>
+              <div class="trend"><span class="status-dot"></span>状态良好</div>
+            </div>
+            <div class="metric">
+              <label>可释放空间</label>
+              <strong>47.6 GB</strong>
+              <div class="meter blue"><i style="width:64%"></i></div>
+              <div class="trend">来自缓存、构建产物、安装包</div>
+            </div>
+            <div class="metric">
+              <label>磁盘使用</label>
+              <strong>71%</strong>
+              <div class="meter yellow"><i style="width:71%"></i></div>
+              <div class="trend">333 GB / 468 GB</div>
+            </div>
+            <div class="metric">
+              <label>活跃提醒</label>
+              <strong>3</strong>
+              <div class="meter red"><i style="width:38%"></i></div>
+              <div class="trend">Chrome、Xcode、Docker</div>
+            </div>
+          </div>
+
+          <div style="height:14px"></div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>扫描工作流</h3>
+              <span>只读预览，不执行删除</span>
+            </div>
+            <div class="scan-flow">
+              <div class="scan-step active">
+                <b>1. 收集状态</b>
+                <small>读取系统负载、磁盘空间、历史日志与白名单。</small>
+              </div>
+              <div class="scan-step">
+                <b>2. 预估空间</b>
+                <small>扫描缓存、安装包、项目产物与应用残留。</small>
+              </div>
+              <div class="scan-step">
+                <b>3. 风险标注</b>
+                <small>区分低风险、需确认、受保护与跳过项目。</small>
+              </div>
+              <div class="scan-step">
+                <b>4. 生成预览</b>
+                <small>进入清理预览页，由用户确认下一步。</small>
+              </div>
+            </div>
+          </div>
+
+          <div style="height:14px"></div>
+
+          <div class="dashboard-lower">
+            <div class="panel health">
+              <div class="ring">
+                <div class="ring-visual"><strong>82</strong></div>
+              </div>
+              <div class="health-list">
+                <div class="row">
+                  <div class="row-title"><b>系统状态</b><small>CPU 18%，内存 62%，温度正常</small></div>
+                  <span class="pill green">正常</span>
+                </div>
+                <div class="row">
+                  <div class="row-title"><b>清理建议</b><small>9 个分类可预览，估计 47.6 GB</small></div>
+                  <span class="pill blue">可处理</span>
+                </div>
+                <div class="row">
+                  <div class="row-title"><b>项目产物</b><small>node_modules、DerivedData、target</small></div>
+                  <span class="pill yellow">偏高</span>
+                </div>
+                <div class="row">
+                  <div class="row-title"><b>删除保护</b><small>系统目录、白名单与应用数据保护已启用</small></div>
+                  <span class="pill green">开启</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="stack">
+              <div class="panel">
+                <div class="panel-head">
+                  <h3>实时负载</h3>
+                  <span>最近 60 秒</span>
+                </div>
+                <div class="chart" aria-label="CPU 使用率柱状图">
+                  <i style="height:32%"></i><i style="height:26%"></i><i style="height:44%"></i><i style="height:38%"></i>
+                  <i style="height:58%"></i><i style="height:35%"></i><i style="height:22%"></i><i style="height:48%"></i>
+                  <i style="height:62%"></i><i style="height:42%"></i><i style="height:30%"></i><i style="height:39%"></i>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-head">
+                  <h3>下一步</h3>
+                  <span>建议流程</span>
+                </div>
+                <div style="padding:12px 14px">
+                  <div class="row">
+                    <div class="row-title"><b>清理预览</b><small>先查看路径清单和风险等级</small></div>
+                    <span class="pill blue">推荐</span>
+                  </div>
+                  <div class="row">
+                    <div class="row-title"><b>磁盘分析</b><small>定位大文件和隐藏空间</small></div>
+                    <span class="pill green">只读</span>
+                  </div>
+                  <div class="row">
+                    <div class="row-title"><b>应用卸载</b><small>按应用查看残留与大小</small></div>
+                    <span class="pill yellow">需确认</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="screen" id="clean">
+          <div class="clean-layout">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>清理预览</h3>
+                <span>9 个分类，默认全选低风险项目</span>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:44px"></th>
+                    <th>分类</th>
+                    <th style="width:110px">估计大小</th>
+                    <th style="width:96px">风险</th>
+                    <th style="width:180px">来源</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><span class="check">✓</span></td>
+                    <td><b>浏览器缓存</b><div class="path">Chrome, Safari, Firefox cache</div></td>
+                    <td>12.4 GB</td>
+                    <td><span class="pill green">低</span></td>
+                    <td>mo clean --dry-run</td>
+                  </tr>
+                  <tr>
+                    <td><span class="check">✓</span></td>
+                    <td><b>开发工具缓存</b><div class="path">Xcode DerivedData, npm, Go build cache</div></td>
+                    <td>21.8 GB</td>
+                    <td><span class="pill yellow">中</span></td>
+                    <td>mo clean --dry-run</td>
+                  </tr>
+                  <tr>
+                    <td><span class="check">✓</span></td>
+                    <td><b>系统日志</b><div class="path">~/Library/Logs, DiagnosticReports</div></td>
+                    <td>3.2 GB</td>
+                    <td><span class="pill green">低</span></td>
+                    <td>mo clean --dry-run</td>
+                  </tr>
+                  <tr>
+                    <td><span class="check off">✓</span></td>
+                    <td><b>AI 工具缓存</b><div class="path">保留 auth、session、模型与配置文件</div></td>
+                    <td>6.7 GB</td>
+                    <td><span class="pill yellow">中</span></td>
+                    <td>白名单保护</td>
+                  </tr>
+                  <tr>
+                    <td><span class="check off">✓</span></td>
+                    <td><b>废纸篓</b><div class="path">需要单独确认</div></td>
+                    <td>3.5 GB</td>
+                    <td><span class="pill red">高</span></td>
+                    <td>用户确认</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <aside class="summary-card">
+              <div>
+                <div class="row-title"><small>本次选择可释放</small></div>
+                <div class="amount">37.4 GB</div>
+              </div>
+              <div class="meter blue"><i style="width:78%"></i></div>
+              <div class="notice">执行前会再次展示完整路径清单。默认移动到废纸篓，不直接永久删除。</div>
+              <button class="btn primary"><span class="symbol">↧</span>导出路径清单</button>
+              <button class="btn danger"><span class="symbol">!</span>确认清理</button>
+            </aside>
+          </div>
+        </div>
+
+        <div class="screen" id="analyze">
+          <div class="grid cols-2">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>磁盘空间图</h3>
+                <span>/Users/cray</span>
+              </div>
+              <div class="treemap">
+                <div class="tree-cell"><b>Library</b><span>92.4 GB</span></div>
+                <div class="tree-col split">
+                  <div class="tree-cell"><b>Projects</b><span>54.1 GB</span></div>
+                  <div class="tree-cell"><b>Downloads</b><span>31.6 GB</span></div>
+                </div>
+                <div class="tree-col">
+                  <div class="tree-cell"><b>Movies</b><span>18.2 GB</span></div>
+                  <div class="tree-cell"><b>Pictures</b><span>12.7 GB</span></div>
+                  <div class="tree-cell"><b>Other</b><span>8.9 GB</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-head">
+                <h3>大文件与隐藏空间</h3>
+                <span>来自 mo analyze --json</span>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>项目</th><th style="width:110px">大小</th><th style="width:90px">类型</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><b>Xcode Archives</b><div class="path">~/Library/Developer/Xcode/Archives</div></td><td>18.8 GB</td><td><span class="pill yellow">归档</span></td></tr>
+                  <tr><td><b>iOS Backups</b><div class="path">~/Library/Application Support/MobileSync</div></td><td>15.3 GB</td><td><span class="pill blue">备份</span></td></tr>
+                  <tr><td><b>Old DMG Files</b><div class="path">~/Downloads</div></td><td>9.6 GB</td><td><span class="pill green">安装包</span></td></tr>
+                  <tr><td><b>Docker Data</b><div class="path">~/Library/Containers/com.docker.docker</div></td><td>7.2 GB</td><td><span class="pill yellow">容器</span></td></tr>
+                  <tr><td><b>Screen Recording.mov</b><div class="path">~/Movies</div></td><td>4.4 GB</td><td><span class="pill blue">媒体</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="screen" id="uninstall">
+          <div class="uninstall-workbench">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>应用卸载</h3>
+                <span>24 个应用，6 个有残留</span>
+              </div>
+              <div class="uninstall-tools">
+                <div class="segmented" aria-label="卸载分类">
+                  <button class="segment active">全部应用</button>
+                  <button class="segment">残留</button>
+                  <button class="segment">扩展</button>
+                </div>
+                <button class="btn"><span class="symbol">⌕</span>扫描残留</button>
+              </div>
+
+              <div class="app-list">
+                <button class="app-row selected" data-app="docker" data-name="Docker" data-initial="D" data-color="#27966a" data-bundle="com.docker.docker" data-path="/Applications/Docker.app" data-size="3.8 GB" data-leftovers="1.4 GB" data-files="68" data-risk="有残留" data-risk-class="yellow">
+                  <span class="app-icon" style="background:#27966a">D</span>
+                  <span class="app-meta"><b>Docker</b><small>com.docker.docker</small></span>
+                  <span class="size-stack"><b>3.8 GB</b><small>+1.4 GB</small></span>
+                </button>
+                <button class="app-row" data-app="figma" data-name="Figma" data-initial="F" data-color="#8a6fd1" data-bundle="com.figma.Desktop" data-path="/Applications/Figma.app" data-size="842 MB" data-leftovers="312 MB" data-files="21" data-risk="可卸载" data-risk-class="green">
+                  <span class="app-icon" style="background:#8a6fd1">F</span>
+                  <span class="app-meta"><b>Figma</b><small>com.figma.Desktop</small></span>
+                  <span class="size-stack"><b>842 MB</b><small>+312 MB</small></span>
+                </button>
+                <button class="app-row" data-app="slack" data-name="Slack" data-initial="S" data-color="#cc7a35" data-bundle="com.tinyspeck.slackmacgap" data-path="/Applications/Slack.app" data-size="1.2 GB" data-leftovers="486 MB" data-files="37" data-risk="可卸载" data-risk-class="green">
+                  <span class="app-icon" style="background:#cc7a35">S</span>
+                  <span class="app-meta"><b>Slack</b><small>com.tinyspeck.slackmacgap</small></span>
+                  <span class="size-stack"><b>1.2 GB</b><small>+486 MB</small></span>
+                </button>
+                <button class="app-row" data-app="zed" data-name="Zed" data-initial="Z" data-color="#557086" data-bundle="dev.zed.Zed" data-path="/Applications/Zed.app" data-size="511 MB" data-leftovers="94 MB" data-files="12" data-risk="保留配置" data-risk-class="yellow">
+                  <span class="app-icon" style="background:#557086">Z</span>
+                  <span class="app-meta"><b>Zed</b><small>dev.zed.Zed</small></span>
+                  <span class="size-stack"><b>511 MB</b><small>+94 MB</small></span>
+                </button>
+                <button class="app-row" data-app="xcode" data-name="Xcode" data-initial="X" data-color="#2f6fbe" data-bundle="com.apple.dt.Xcode" data-path="/Applications/Xcode.app" data-size="12.1 GB" data-leftovers="18.8 GB" data-files="134" data-risk="受保护" data-risk-class="red">
+                  <span class="app-icon" style="background:#2f6fbe">X</span>
+                  <span class="app-meta"><b>Xcode</b><small>com.apple.dt.Xcode</small></span>
+                  <span class="size-stack"><b>12.1 GB</b><small>受保护</small></span>
+                </button>
+              </div>
+
+              <div class="uninstall-sidebar-summary">
+                <div class="mini-stat"><b>24</b><small>已安装</small></div>
+                <div class="mini-stat"><b>6</b><small>有残留</small></div>
+                <div class="mini-stat"><b>22.4 GB</b><small>可检查</small></div>
+              </div>
+            </div>
+
+            <div class="panel app-detail uninstall-glow">
+              <div class="detail-hero">
+                <div class="detail-icon" id="detailIcon">D</div>
+                <div class="detail-title">
+                  <h3 id="detailName">Docker</h3>
+                  <p id="detailPath">/Applications/Docker.app</p>
+                  <p id="detailBundle">com.docker.docker</p>
+                </div>
+                <div class="detail-score">
+                  <span class="pill yellow" id="detailRisk">有残留</span>
+                  <strong id="detailTotal">5.2 GB</strong>
+                  <small style="color:var(--muted)">应用与相关文件</small>
+                </div>
+              </div>
+
+              <div class="detail-summary">
+                <div class="mini-stat"><b id="detailAppSize">3.8 GB</b><small>应用本体</small></div>
+                <div class="mini-stat"><b id="detailLeftovers">1.4 GB</b><small>相关文件</small></div>
+                <div class="mini-stat"><b id="detailFiles">68</b><small>文件项</small></div>
+                <div class="mini-stat"><b>Trash</b><small>默认删除模式</small></div>
+              </div>
+
+              <div class="file-groups">
+                <div class="notice">卸载会先移动到废纸篓。系统应用、白名单路径、认证与会话数据默认跳过。</div>
+
+                <div class="file-group">
+                  <div class="file-group-head">
+                    <span class="check">✓</span>
+                    <b>应用程序</b>
+                    <span class="pill blue" id="groupAppSize">3.8 GB</span>
+                  </div>
+                  <div class="file-line">
+                    <span class="check">✓</span>
+                    <code id="lineAppPath">/Applications/Docker.app</code>
+                    <span>主程序</span>
+                  </div>
+                </div>
+
+                <div class="file-group">
+                  <div class="file-group-head">
+                    <span class="check">✓</span>
+                    <b>容器与支持文件</b>
+                    <span class="pill yellow" id="groupSupportSize">1.1 GB</span>
+                  </div>
+                  <div class="file-line">
+                    <span class="check">✓</span>
+                    <code id="lineSupport">~/Library/Application Support/Docker Desktop</code>
+                    <span>数据</span>
+                  </div>
+                  <div class="file-line">
+                    <span class="check">✓</span>
+                    <code id="lineContainer">~/Library/Containers/com.docker.docker</code>
+                    <span>容器</span>
+                  </div>
+                </div>
+
+                <div class="file-group">
+                  <div class="file-group-head">
+                    <span class="check">✓</span>
+                    <b>偏好设置与启动项</b>
+                    <span class="pill blue">286 MB</span>
+                  </div>
+                  <div class="file-line">
+                    <span class="check">✓</span>
+                    <code id="linePrefs">~/Library/Preferences/com.docker.docker.plist</code>
+                    <span>偏好</span>
+                  </div>
+                  <div class="file-line">
+                    <span class="check off">✓</span>
+                    <code>~/Library/Keychains / credentials</code>
+                    <span>受保护</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="uninstall-actionbar">
+                <div class="selection-note" id="uninstallNote">已选择 Docker，预计移动 5.2 GB 到废纸篓。凭据、系统路径与白名单项目会跳过。</div>
+                <div class="actions">
+                  <button class="btn"><span class="symbol">⌕</span>显示文件</button>
+                  <button class="btn danger"><span class="symbol">!</span>卸载所选</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="screen" id="history">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>操作历史</h3>
+              <span>来自 mo history --json</span>
+            </div>
+            <table>
+              <thead>
+                <tr><th>时间</th><th>操作</th><th>结果</th><th style="width:120px">释放空间</th><th style="width:130px">模式</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>今天 11:42</td><td><b>清理浏览器缓存</b><div class="path">Chrome, Safari</div></td><td><span class="pill green">完成</span></td><td>4.8 GB</td><td>Trash</td></tr>
+                <tr><td>昨天 18:03</td><td><b>项目产物清理</b><div class="path">~/dev, ~/Projects</div></td><td><span class="pill green">完成</span></td><td>9.1 GB</td><td>Trash</td></tr>
+                <tr><td>周一 09:16</td><td><b>应用卸载预览</b><div class="path">Docker</div></td><td><span class="pill blue">只读</span></td><td>0 GB</td><td>Dry run</td></tr>
+                <tr><td>上周五 21:37</td><td><b>系统优化</b><div class="path">Launch Services, Spotlight</div></td><td><span class="pill yellow">部分跳过</span></td><td>0 GB</td><td>Sudo</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="screen" id="settings">
+          <div class="settings">
+            <div class="panel pad">
+              <div class="panel-head" style="padding:0 0 12px">
+                <h3>安全与执行</h3>
+                <span>默认策略</span>
+              </div>
+              <div class="setting-row">
+                <div class="row-title"><b>始终先 dry-run</b><small>清理前必须先生成预览结果</small></div>
+                <span class="switch"></span>
+              </div>
+              <div class="setting-row">
+                <div class="row-title"><b>移动到废纸篓</b><small>避免不可恢复的永久删除</small></div>
+                <span class="switch"></span>
+              </div>
+              <div class="setting-row">
+                <div class="row-title"><b>允许管理员任务</b><small>仅在明确确认后请求权限</small></div>
+                <span class="switch off"></span>
+              </div>
+            </div>
+
+            <div class="panel pad">
+              <div class="panel-head" style="padding:0 0 12px">
+                <h3>白名单</h3>
+                <span>保护路径</span>
+              </div>
+              <div class="setting-row">
+                <div class="row-title"><b>AI 工具认证与会话</b><small>~/.codex/auth.json, session_index.jsonl</small></div>
+                <span class="pill green">保护</span>
+              </div>
+              <div class="setting-row">
+                <div class="row-title"><b>模型与大缓存</b><small>HuggingFace, Ollama, Playwright browsers</small></div>
+                <span class="pill green">保护</span>
+              </div>
+              <div class="setting-row">
+                <div class="row-title"><b>自定义规则</b><small>~/.config/mole/whitelist</small></div>
+                <button class="btn">编辑</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="scan-overlay" id="scanOverlay" role="dialog" aria-modal="true" aria-labelledby="scanTitle">
+    <div class="scan-dialog">
+      <div class="scan-dialog-head">
+        <div>
+          <h3 id="scanTitle">开始安全扫描</h3>
+          <p>这只是原型里的扫描演示，不会调用 Mole 命令，也不会修改任何文件。</p>
+        </div>
+        <button class="icon-btn" id="closeScanBtn" aria-label="关闭扫描面板">×</button>
+      </div>
+
+      <div class="scan-body">
+        <div class="scan-progress-main">
+          <div class="scan-orbit" id="scanOrbit" style="--scan-progress:0%">0%</div>
+          <div class="scan-copy">
+            <b id="scanStage">准备扫描</b>
+            <div class="meter blue"><i id="scanMeter" style="width:0%"></i></div>
+            <div class="scan-path" id="scanPath">等待开始...</div>
+          </div>
+        </div>
+
+        <div class="scan-queue" id="scanQueue">
+          <div class="queue-item" data-step="0">
+            <span class="queue-dot">1</span>
+            <div><b>系统状态</b><br><small>CPU、内存、磁盘与运行时间</small></div>
+            <span class="pill blue">等待</span>
+          </div>
+          <div class="queue-item" data-step="1">
+            <span class="queue-dot">2</span>
+            <div><b>清理候选</b><br><small>缓存、日志、安装包、项目产物</small></div>
+            <span class="pill blue">等待</span>
+          </div>
+          <div class="queue-item" data-step="2">
+            <span class="queue-dot">3</span>
+            <div><b>应用残留</b><br><small>Bundle ID、LaunchAgents、Preferences</small></div>
+            <span class="pill blue">等待</span>
+          </div>
+          <div class="queue-item" data-step="3">
+            <span class="queue-dot">4</span>
+            <div><b>安全检查</b><br><small>系统路径、白名单、Trash 路由</small></div>
+            <span class="pill blue">等待</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="scan-footer">
+        <span class="scan-note" id="scanNote">扫描完成后会生成清理预览。</span>
+        <div class="actions">
+          <button class="btn" id="restartScanBtn"><span class="symbol">↻</span>重新扫描</button>
+          <button class="btn primary" id="viewPreviewBtn"><span class="symbol">→</span>查看预览</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const scanOverlay = document.getElementById("scanOverlay");
+    const startScanBtn = document.getElementById("startScanBtn");
+    const closeScanBtn = document.getElementById("closeScanBtn");
+    const restartScanBtn = document.getElementById("restartScanBtn");
+    const viewPreviewBtn = document.getElementById("viewPreviewBtn");
+    const scanOrbit = document.getElementById("scanOrbit");
+    const scanMeter = document.getElementById("scanMeter");
+    const scanStage = document.getElementById("scanStage");
+    const scanPath = document.getElementById("scanPath");
+    const scanNote = document.getElementById("scanNote");
+    const queueItems = [...document.querySelectorAll(".queue-item")];
+    const flowSteps = [...document.querySelectorAll(".scan-step")];
+    const appRows = [...document.querySelectorAll(".app-row")];
+    const languageSelect = document.getElementById("languageSelect");
+    const textNodes = [];
+    let currentLanguage = "zh-CN";
+
+    const translations = {
+      "zh-CN": {},
+      "zh-TW": {
+        "Mac 维护与清理": "Mac 維護與清理",
+        "总览": "總覽",
+        "清理预览": "清理預覽",
+        "磁盘分析": "磁碟分析",
+        "应用卸载": "應用程式卸載",
+        "操作历史": "操作記錄",
+        "设置": "設定",
+        "安全模式开启": "安全模式開啟",
+        "默认先预览，不会直接删除。执行清理时继续使用 Mole 的 Trash 与保护规则。": "預設先預覽，不會直接刪除。執行清理時會繼續使用 Mole 的 Trash 與保護規則。",
+        "MoleCube 原型": "MoleCube 原型",
+        "面向 macOS 的可视化清理、卸载、分析与状态监控工作台": "面向 macOS 的視覺化清理、卸載、分析與狀態監控工作台",
+        "搜索应用、路径或历史": "搜尋應用程式、路徑或記錄",
+        "语言": "語言",
+        "刷新": "重新整理",
+        "开始扫描": "開始掃描",
+        "健康分": "健康分",
+        "可释放空间": "可釋放空間",
+        "磁盘使用": "磁碟使用",
+        "活跃提醒": "活躍提醒",
+        "状态良好": "狀態良好",
+        "来自缓存、构建产物、安装包": "來自快取、建置產物、安裝包",
+        "333 GB / 468 GB": "333 GB / 468 GB",
+        "Chrome、Xcode、Docker": "Chrome、Xcode、Docker",
+        "扫描工作流": "掃描工作流程",
+        "只读预览，不执行删除": "唯讀預覽，不執行刪除",
+        "1. 收集状态": "1. 收集狀態",
+        "读取系统负载、磁盘空间、历史日志与白名单。": "讀取系統負載、磁碟空間、操作記錄與白名單。",
+        "2. 预估空间": "2. 預估空間",
+        "扫描缓存、安装包、项目产物与应用残留。": "掃描快取、安裝包、專案產物與應用程式殘留。",
+        "3. 风险标注": "3. 風險標記",
+        "区分低风险、需确认、受保护与跳过项目。": "區分低風險、需確認、受保護與跳過項目。",
+        "4. 生成预览": "4. 產生預覽",
+        "进入清理预览页，由用户确认下一步。": "進入清理預覽頁，由使用者確認下一步。",
+        "系统状态": "系統狀態",
+        "CPU 18%，内存 62%，温度正常": "CPU 18%，記憶體 62%，溫度正常",
+        "正常": "正常",
+        "清理建议": "清理建議",
+        "9 个分类可预览，估计 47.6 GB": "9 個分類可預覽，預估 47.6 GB",
+        "可处理": "可處理",
+        "项目产物": "專案產物",
+        "node_modules、DerivedData、target": "node_modules、DerivedData、target",
+        "偏高": "偏高",
+        "删除保护": "刪除保護",
+        "系统目录、白名单与应用数据保护已启用": "系統目錄、白名單與應用程式資料保護已啟用",
+        "开启": "開啟",
+        "实时负载": "即時負載",
+        "最近 60 秒": "最近 60 秒",
+        "下一步": "下一步",
+        "建议流程": "建議流程",
+        "先查看路径清单和风险等级": "先查看路徑清單和風險等級",
+        "推荐": "推薦",
+        "定位大文件和隐藏空间": "定位大型檔案和隱藏空間",
+        "只读": "唯讀",
+        "按应用查看残留与大小": "依應用程式查看殘留與大小",
+        "需确认": "需確認",
+        "9 个分类，默认全选低风险项目": "9 個分類，預設全選低風險項目",
+        "分类": "分類",
+        "估计大小": "預估大小",
+        "风险": "風險",
+        "来源": "來源",
+        "浏览器缓存": "瀏覽器快取",
+        "开发工具缓存": "開發工具快取",
+        "系统日志": "系統日誌",
+        "AI 工具缓存": "AI 工具快取",
+        "废纸篓": "廢紙簍",
+        "低": "低",
+        "中": "中",
+        "高": "高",
+        "白名单保护": "白名單保護",
+        "用户确认": "使用者確認",
+        "本次选择可释放": "本次選擇可釋放",
+        "执行前会再次展示完整路径清单。默认移动到废纸篓，不直接永久删除。": "執行前會再次展示完整路徑清單。預設移到廢紙簍，不直接永久刪除。",
+        "导出路径清单": "匯出路徑清單",
+        "确认清理": "確認清理",
+        "磁盘空间图": "磁碟空間圖",
+        "大文件与隐藏空间": "大型檔案與隱藏空間",
+        "来自 mo analyze --json": "來自 mo analyze --json",
+        "项目": "項目",
+        "大小": "大小",
+        "类型": "類型",
+        "归档": "封存",
+        "备份": "備份",
+        "安装包": "安裝包",
+        "容器": "容器",
+        "媒体": "媒體",
+        "24 个应用，6 个有残留": "24 個應用程式，6 個有殘留",
+        "全部应用": "全部應用程式",
+        "残留": "殘留",
+        "扩展": "擴充",
+        "扫描残留": "掃描殘留",
+        "已安装": "已安裝",
+        "有残留": "有殘留",
+        "可检查": "可檢查",
+        "可卸载": "可卸載",
+        "保留配置": "保留設定",
+        "受保护": "受保護",
+        "应用与相关文件": "應用程式與相關檔案",
+        "应用本体": "應用程式本體",
+        "相关文件": "相關檔案",
+        "文件项": "檔案項目",
+        "默认删除模式": "預設刪除模式",
+        "卸载会先移动到废纸篓。系统应用、白名单路径、认证与会话数据默认跳过。": "卸載會先移到廢紙簍。系統應用程式、白名單路徑、認證與工作階段資料預設跳過。",
+        "应用程序": "應用程式",
+        "主程序": "主程式",
+        "容器与支持文件": "容器與支援檔案",
+        "数据": "資料",
+        "偏好设置与启动项": "偏好設定與啟動項目",
+        "偏好": "偏好",
+        "显示文件": "顯示檔案",
+        "卸载所选": "卸載所選",
+        "列表来自 mo uninstall --list": "列表來自 mo uninstall --list",
+        "操作历史": "操作記錄",
+        "来自 mo history --json": "來自 mo history --json",
+        "时间": "時間",
+        "操作": "操作",
+        "结果": "結果",
+        "释放空间": "釋放空間",
+        "模式": "模式",
+        "完成": "完成",
+        "部分跳过": "部分跳過",
+        "安全与执行": "安全與執行",
+        "默认策略": "預設策略",
+        "始终先 dry-run": "永遠先 dry-run",
+        "清理前必须先生成预览结果": "清理前必須先產生預覽結果",
+        "移动到废纸篓": "移到廢紙簍",
+        "避免不可恢复的永久删除": "避免不可復原的永久刪除",
+        "允许管理员任务": "允許管理員任務",
+        "仅在明确确认后请求权限": "僅在明確確認後請求權限",
+        "白名单": "白名單",
+        "保护路径": "保護路徑",
+        "AI 工具认证与会话": "AI 工具認證與工作階段",
+        "模型与大缓存": "模型與大型快取",
+        "自定义规则": "自訂規則",
+        "保护": "保護",
+        "编辑": "編輯",
+        "开始安全扫描": "開始安全掃描",
+        "这只是原型里的扫描演示，不会调用 Mole 命令，也不会修改任何文件。": "這只是原型裡的掃描示範，不會呼叫 Mole 命令，也不會修改任何檔案。",
+        "准备扫描": "準備掃描",
+        "等待开始...": "等待開始...",
+        "系统状态": "系統狀態",
+        "CPU、内存、磁盘与运行时间": "CPU、記憶體、磁碟與執行時間",
+        "清理候选": "清理候選",
+        "缓存、日志、安装包、项目产物": "快取、日誌、安裝包、專案產物",
+        "应用残留": "應用程式殘留",
+        "安全检查": "安全檢查",
+        "系统路径、白名单、Trash 路由": "系統路徑、白名單、Trash 路由",
+        "等待": "等待",
+        "扫描中": "掃描中",
+        "扫描完成后会生成清理预览。": "掃描完成後會產生清理預覽。",
+        "重新扫描": "重新掃描",
+        "查看预览": "查看預覽",
+        "读取系统状态": "讀取系統狀態",
+        "检查磁盘与内存": "檢查磁碟與記憶體",
+        "扫描清理候选": "掃描清理候選",
+        "预估项目产物": "預估專案產物",
+        "匹配应用残留": "匹配應用程式殘留",
+        "应用保护规则": "應用程式保護規則",
+        "扫描完成": "掃描完成",
+        "已生成 9 个清理分类，预计可释放 47.6 GB": "已產生 9 個清理分類，預計可釋放 47.6 GB",
+        "正在生成只读预览，不会执行删除。": "正在產生唯讀預覽，不會執行刪除。",
+        "扫描完成，可以进入清理预览页核对路径清单。": "掃描完成，可以進入清理預覽頁核對路徑清單。"
+      },
+      en: {
+        "Mac 维护与清理": "Mac maintenance",
+        "总览": "Dashboard",
+        "清理预览": "Clean Preview",
+        "磁盘分析": "Disk Analyze",
+        "应用卸载": "Uninstaller",
+        "操作历史": "History",
+        "设置": "Settings",
+        "安全模式开启": "Safe Mode On",
+        "默认先预览，不会直接删除。执行清理时继续使用 Mole 的 Trash 与保护规则。": "Preview first by default. Cleanup continues to use Mole's Trash routing and protection rules.",
+        "MoleCube 原型": "MoleCube Prototype",
+        "面向 macOS 的可视化清理、卸载、分析与状态监控工作台": "A visual macOS workspace for cleanup, uninstall, analysis, and system status.",
+        "搜索应用、路径或历史": "Search apps, paths, or history",
+        "语言": "Language",
+        "刷新": "Refresh",
+        "开始扫描": "Start Scan",
+        "健康分": "Health Score",
+        "可释放空间": "Reclaimable",
+        "磁盘使用": "Disk Usage",
+        "活跃提醒": "Active Alerts",
+        "状态良好": "Healthy",
+        "来自缓存、构建产物、安装包": "From caches, build artifacts, installers",
+        "Chrome、Xcode、Docker": "Chrome, Xcode, Docker",
+        "扫描工作流": "Scan Workflow",
+        "只读预览，不执行删除": "Read-only preview, no deletion",
+        "1. 收集状态": "1. Collect Status",
+        "读取系统负载、磁盘空间、历史日志与白名单。": "Read system load, disk space, history, and whitelist.",
+        "2. 预估空间": "2. Estimate Space",
+        "扫描缓存、安装包、项目产物与应用残留。": "Scan caches, installers, project artifacts, and app leftovers.",
+        "3. 风险标注": "3. Flag Risk",
+        "区分低风险、需确认、受保护与跳过项目。": "Separate low-risk, confirmation-needed, protected, and skipped items.",
+        "4. 生成预览": "4. Build Preview",
+        "进入清理预览页，由用户确认下一步。": "Open the preview page so the user confirms the next step.",
+        "系统状态": "System Status",
+        "CPU 18%，内存 62%，温度正常": "CPU 18%, memory 62%, temperature normal",
+        "正常": "Normal",
+        "清理建议": "Cleanup Suggestions",
+        "9 个分类可预览，估计 47.6 GB": "9 categories, estimated 47.6 GB",
+        "可处理": "Actionable",
+        "项目产物": "Project Artifacts",
+        "偏高": "Elevated",
+        "删除保护": "Deletion Protection",
+        "系统目录、白名单与应用数据保护已启用": "System paths, whitelist, and app data protection are enabled",
+        "开启": "On",
+        "实时负载": "Live Load",
+        "最近 60 秒": "Last 60 seconds",
+        "下一步": "Next Step",
+        "建议流程": "Suggested Flow",
+        "先查看路径清单和风险等级": "Review path list and risk level first",
+        "推荐": "Recommended",
+        "定位大文件和隐藏空间": "Locate large files and hidden space",
+        "只读": "Read-only",
+        "按应用查看残留与大小": "Review leftovers and size by app",
+        "需确认": "Confirm",
+        "9 个分类，默认全选低风险项目": "9 categories, low-risk items selected by default",
+        "分类": "Category",
+        "估计大小": "Est. Size",
+        "风险": "Risk",
+        "来源": "Source",
+        "浏览器缓存": "Browser Cache",
+        "开发工具缓存": "Developer Cache",
+        "系统日志": "System Logs",
+        "AI 工具缓存": "AI Tool Cache",
+        "废纸篓": "Trash",
+        "低": "Low",
+        "中": "Medium",
+        "高": "High",
+        "白名单保护": "Whitelist Protected",
+        "用户确认": "User Confirmed",
+        "本次选择可释放": "Selected Reclaimable",
+        "执行前会再次展示完整路径清单。默认移动到废纸篓，不直接永久删除。": "Before execution, MoleCube shows the full path list again. Items move to Trash by default.",
+        "导出路径清单": "Export Path List",
+        "确认清理": "Confirm Cleanup",
+        "磁盘空间图": "Disk Map",
+        "大文件与隐藏空间": "Large Files & Hidden Space",
+        "来自 mo analyze --json": "From mo analyze --json",
+        "项目": "Item",
+        "大小": "Size",
+        "类型": "Type",
+        "归档": "Archives",
+        "备份": "Backups",
+        "安装包": "Installers",
+        "容器": "Containers",
+        "媒体": "Media",
+        "24 个应用，6 个有残留": "24 apps, 6 with leftovers",
+        "全部应用": "All Apps",
+        "残留": "Leftovers",
+        "扩展": "Extensions",
+        "扫描残留": "Scan Leftovers",
+        "已安装": "Installed",
+        "有残留": "Leftovers",
+        "可检查": "Reviewable",
+        "可卸载": "Removable",
+        "保留配置": "Keep Config",
+        "受保护": "Protected",
+        "应用与相关文件": "App and related files",
+        "应用本体": "App Bundle",
+        "相关文件": "Related Files",
+        "文件项": "Files",
+        "默认删除模式": "Default deletion mode",
+        "卸载会先移动到废纸篓。系统应用、白名单路径、认证与会话数据默认跳过。": "Uninstall moves items to Trash first. System apps, whitelist paths, credentials, and session data are skipped by default.",
+        "应用程序": "Application",
+        "主程序": "Main app",
+        "容器与支持文件": "Containers & Support Files",
+        "数据": "Data",
+        "偏好设置与启动项": "Preferences & Launch Items",
+        "偏好": "Preferences",
+        "显示文件": "Show Files",
+        "卸载所选": "Uninstall Selected",
+        "列表来自 mo uninstall --list": "List from mo uninstall --list",
+        "来自 mo history --json": "From mo history --json",
+        "时间": "Time",
+        "操作": "Action",
+        "结果": "Result",
+        "释放空间": "Freed Space",
+        "模式": "Mode",
+        "完成": "Done",
+        "部分跳过": "Partially Skipped",
+        "安全与执行": "Safety & Execution",
+        "默认策略": "Default Policy",
+        "始终先 dry-run": "Always dry-run first",
+        "清理前必须先生成预览结果": "Generate a preview before cleanup",
+        "移动到废纸篓": "Move to Trash",
+        "避免不可恢复的永久删除": "Avoid unrecoverable permanent deletion",
+        "允许管理员任务": "Allow admin tasks",
+        "仅在明确确认后请求权限": "Request permission only after explicit confirmation",
+        "白名单": "Whitelist",
+        "保护路径": "Protected Paths",
+        "AI 工具认证与会话": "AI tool auth and sessions",
+        "模型与大缓存": "Models and large caches",
+        "自定义规则": "Custom Rules",
+        "保护": "Protected",
+        "编辑": "Edit",
+        "开始安全扫描": "Start Safe Scan",
+        "这只是原型里的扫描演示，不会调用 Mole 命令，也不会修改任何文件。": "This is a prototype scan demo. It does not call Mole commands or modify files.",
+        "准备扫描": "Preparing scan",
+        "等待开始...": "Waiting to start...",
+        "CPU、内存、磁盘与运行时间": "CPU, memory, disk, and uptime",
+        "清理候选": "Cleanup Candidates",
+        "缓存、日志、安装包、项目产物": "Caches, logs, installers, project artifacts",
+        "应用残留": "App Leftovers",
+        "安全检查": "Safety Check",
+        "系统路径、白名单、Trash 路由": "System paths, whitelist, Trash routing",
+        "等待": "Waiting",
+        "扫描中": "Scanning",
+        "扫描完成后会生成清理预览。": "A cleanup preview will be generated after scanning.",
+        "重新扫描": "Rescan",
+        "查看预览": "View Preview",
+        "读取系统状态": "Reading system status",
+        "检查磁盘与内存": "Checking disk and memory",
+        "扫描清理候选": "Scanning cleanup candidates",
+        "预估项目产物": "Estimating project artifacts",
+        "匹配应用残留": "Matching app leftovers",
+        "应用保护规则": "Applying protection rules",
+        "扫描完成": "Scan complete",
+        "已生成 9 个清理分类，预计可释放 47.6 GB": "Generated 9 cleanup categories, estimated 47.6 GB reclaimable",
+        "正在生成只读预览，不会执行删除。": "Generating a read-only preview. No deletion will run.",
+        "扫描完成，可以进入清理预览页核对路径清单。": "Scan complete. You can review the path list in Clean Preview."
+      }
+    };
+
+    function t(source) {
+      return translations[currentLanguage]?.[source] || source;
+    }
+
+    function captureTextNodes() {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const parent = node.parentElement;
+        if (parent && !["SCRIPT", "STYLE", "OPTION"].includes(parent.tagName) && node.nodeValue.trim()) {
+          textNodes.push({ node, source: node.nodeValue });
+        }
+        node = walker.nextNode();
+      }
+    }
+
+    function translateSourceText(source) {
+      const trimmed = source.trim();
+      if (!trimmed) return source;
+      const leading = source.match(/^\s*/)?.[0] || "";
+      const trailing = source.match(/\s*$/)?.[0] || "";
+      return `${leading}${t(trimmed)}${trailing}`;
+    }
+
+    function applyLanguage(language) {
+      currentLanguage = language;
+      document.documentElement.lang = language;
+      textNodes.forEach((record) => {
+        record.node.nodeValue = translateSourceText(record.source);
+      });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+        element.setAttribute("placeholder", t(element.dataset.i18nPlaceholder));
+      });
+      const selectedApp = document.querySelector(".app-row.selected");
+      if (selectedApp) selectApp(selectedApp);
+      if (scanOverlay.classList.contains("open")) {
+        const progress = parseInt(scanOrbit.textContent, 10) || 0;
+        const frame = scanFrames.find((item) => item.progress === progress);
+        if (frame) setScanState(frame);
+      }
+      try {
+        window.localStorage.setItem("molecube-language", language);
+      } catch (_) {
+      }
+    }
+
+    function sizeToGb(value) {
+      const number = parseFloat(value);
+      if (Number.isNaN(number)) return 0;
+      return value.includes("MB") ? number / 1024 : number;
+    }
+
+    function formatGb(value) {
+      return value >= 1 ? `${value.toFixed(1)} GB` : `${Math.round(value * 1024)} MB`;
+    }
+
+    function selectApp(row) {
+      appRows.forEach((item) => item.classList.toggle("selected", item === row));
+
+      const total = formatGb(sizeToGb(row.dataset.size) + sizeToGb(row.dataset.leftovers));
+      const riskClass = row.dataset.riskClass || "green";
+      document.getElementById("detailIcon").textContent = row.dataset.initial;
+      document.getElementById("detailIcon").style.background = row.dataset.color;
+      document.getElementById("detailName").textContent = row.dataset.name;
+      document.getElementById("detailPath").textContent = row.dataset.path;
+      document.getElementById("detailBundle").textContent = row.dataset.bundle;
+      document.getElementById("detailRisk").textContent = t(row.dataset.risk);
+      document.getElementById("detailRisk").className = `pill ${riskClass}`;
+      document.getElementById("detailTotal").textContent = total;
+      document.getElementById("detailAppSize").textContent = row.dataset.size;
+      document.getElementById("detailLeftovers").textContent = row.dataset.leftovers;
+      document.getElementById("detailFiles").textContent = row.dataset.files;
+      document.getElementById("groupAppSize").textContent = row.dataset.size;
+      document.getElementById("groupSupportSize").textContent = formatGb(Math.max(sizeToGb(row.dataset.leftovers) * 0.78, 0.05));
+      document.getElementById("lineAppPath").textContent = row.dataset.path;
+      document.getElementById("lineSupport").textContent = `~/Library/Application Support/${row.dataset.name}`;
+      document.getElementById("lineContainer").textContent = `~/Library/Containers/${row.dataset.bundle}`;
+      document.getElementById("linePrefs").textContent = `~/Library/Preferences/${row.dataset.bundle}.plist`;
+      const notes = {
+        "zh-CN": `已选择 ${row.dataset.name}，预计移动 ${total} 到废纸篓。凭据、系统路径与白名单项目会跳过。`,
+        "zh-TW": `已選擇 ${row.dataset.name}，預計移動 ${total} 到廢紙簍。憑據、系統路徑與白名單項目會跳過。`,
+        en: `${row.dataset.name} selected. ${total} will move to Trash. Credentials, system paths, and whitelist items will be skipped.`
+      };
+      document.getElementById("uninstallNote").textContent = notes[currentLanguage] || notes["zh-CN"];
+    }
+
+    appRows.forEach((row) => {
+      row.addEventListener("click", () => selectApp(row));
+    });
+
+    const scanFrames = [
+      { progress: 8, step: 0, stage: "读取系统状态", path: "mo status --json" },
+      { progress: 22, step: 0, stage: "检查磁盘与内存", path: "/Users/cray" },
+      { progress: 38, step: 1, stage: "扫描清理候选", path: "~/Library/Caches" },
+      { progress: 52, step: 1, stage: "预估项目产物", path: "~/dev, ~/Projects, ~/GitHub" },
+      { progress: 67, step: 2, stage: "匹配应用残留", path: "/Applications, ~/Library/Application Support" },
+      { progress: 81, step: 3, stage: "应用保护规则", path: "whitelist, protected bundles, Trash routing" },
+      { progress: 100, step: 3, stage: "扫描完成", path: "已生成 9 个清理分类，预计可释放 47.6 GB" }
+    ];
+
+    let scanTimer = null;
+
+    function setScanState(frame) {
+      const progress = `${frame.progress}%`;
+      scanOrbit.textContent = progress;
+      scanOrbit.style.setProperty("--scan-progress", progress);
+      scanMeter.style.width = progress;
+      scanStage.textContent = t(frame.stage);
+      scanPath.textContent = t(frame.path);
+
+      queueItems.forEach((item, index) => {
+        item.classList.toggle("running", index === frame.step && frame.progress < 100);
+        item.classList.toggle("done", index < frame.step || frame.progress === 100);
+        const pill = item.querySelector(".pill");
+        if (index < frame.step || frame.progress === 100) {
+          pill.textContent = t("完成");
+          pill.className = "pill green";
+        } else if (index === frame.step) {
+          pill.textContent = frame.progress === 100 ? t("完成") : t("扫描中");
+          pill.className = frame.progress === 100 ? "pill green" : "pill yellow";
+        } else {
+          pill.textContent = t("等待");
+          pill.className = "pill blue";
+        }
+      });
+
+      flowSteps.forEach((step, index) => {
+        step.classList.toggle("active", index === frame.step);
+      });
+
+      scanOrbit.classList.toggle("running", frame.progress < 100);
+      scanNote.textContent = frame.progress === 100 ? t("扫描完成，可以进入清理预览页核对路径清单。") : t("正在生成只读预览，不会执行删除。");
+      viewPreviewBtn.disabled = frame.progress < 100;
+      viewPreviewBtn.style.opacity = frame.progress < 100 ? "0.55" : "1";
+    }
+
+    function runScan() {
+      clearInterval(scanTimer);
+      document.body.classList.add("is-scanning");
+      scanOverlay.classList.add("open");
+      setScanState({ progress: 0, step: 0, stage: "准备扫描", path: "等待开始..." });
+
+      let index = 0;
+      scanTimer = setInterval(() => {
+        setScanState(scanFrames[index]);
+        index += 1;
+        if (index >= scanFrames.length) {
+          clearInterval(scanTimer);
+          document.body.classList.remove("is-scanning");
+        }
+      }, 760);
+    }
+
+    function closeScan() {
+      clearInterval(scanTimer);
+      document.body.classList.remove("is-scanning");
+      scanOverlay.classList.remove("open");
+    }
+
+    startScanBtn.addEventListener("click", runScan);
+    restartScanBtn.addEventListener("click", runScan);
+    closeScanBtn.addEventListener("click", closeScan);
+    scanOverlay.addEventListener("click", (event) => {
+      if (event.target === scanOverlay) closeScan();
+    });
+    viewPreviewBtn.addEventListener("click", () => {
+      closeScan();
+      window.location.hash = "clean";
+    });
+    languageSelect.addEventListener("change", (event) => {
+      applyLanguage(event.target.value);
+    });
+
+    captureTextNodes();
+    const savedLanguage = (() => {
+      try {
+        return window.localStorage.getItem("molecube-language");
+      } catch (_) {
+        return null;
+      }
+    })();
+    if (savedLanguage && translations[savedLanguage]) {
+      languageSelect.value = savedLanguage;
+      applyLanguage(savedLanguage);
+    } else {
+      applyLanguage("zh-CN");
+    }
+  </script>
+</body>
+</html>
