@@ -373,3 +373,8 @@ Real feedback from users who shared Mole on X.
 ## License
 
 Mole is open source under GPL-3.0, see [LICENSE](LICENSE). A version you modify and share stays open under the same license, and if you fork Mole into your own product, to avoid confusion please give it a different name and credit Mole as the source. [Mole for Mac](https://mole.fit) is a separate, proprietary app, and Mole is here for the long run.
+
+MoleCube is a separate GPL-3.0 commercial open source macOS UI that includes and
+uses Mole. It may be sold, but every released DMG must include the license,
+attribution, and access to the corresponding source for that exact release. See
+[NOTICE](NOTICE) and [the MoleCube distribution guide](docs/OPEN_SOURCE_DISTRIBUTION.md).

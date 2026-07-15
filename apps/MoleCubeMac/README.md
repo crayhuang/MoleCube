@@ -1,22 +1,41 @@
-# MoleCubeMac
+# MoleCube for macOS
 
-First SwiftUI implementation for the MoleCube macOS app.
+MoleCube is a native macOS interface for safe system maintenance. It provides
+visual workflows for cleanup previews, app removal, disk analysis, optimization,
+and system status.
 
-This version is intentionally conservative:
+MoleCube includes and uses [Mole](https://github.com/tw93/Mole), the open-source
+macOS maintenance CLI created by tw93 and contributors.
 
-- Uses SwiftUI for the UI shell and core screens.
-- Uses the local Mole repository as the CLI backend.
-- Reads machine-readable output where it already exists.
-- Keeps destructive cleanup and uninstall actions as disabled UI placeholders.
-- Supports Simplified Chinese, Traditional Chinese, and English through an in-app language picker.
+## License and commercial use
 
-## Run
+MoleCube is commercial open source software distributed under the GNU General
+Public License, version 3.0 (GPL-3.0). You may charge for copies, support,
+services, or distribution, but recipients retain the GPL rights to run, study,
+modify, and redistribute the GPL-covered software.
 
-Recommended for UI development:
+Every MoleCube release must:
+
+- Include the GPL-3.0 license and the upstream Mole attribution.
+- Provide access to the complete corresponding source for that exact binary.
+- Include the MoleCube UI source, bundled Mole source, modifications, and build
+  scripts needed to produce the release.
+- Avoid terms or technical restrictions that prevent GPL-permitted modification
+  or redistribution.
+
+See the repository [LICENSE](../../LICENSE), [NOTICE](../../NOTICE), and
+[open-source distribution guide](../../docs/OPEN_SOURCE_DISTRIBUTION.md).
+
+## System requirements
+
+- macOS 14 or later.
+- Universal build support for Apple Silicon and Intel Macs.
+
+## Run from Xcode
 
 1. Open `MoleCubeMac.xcodeproj` in Xcode.
 2. Select the `MoleCubeMac` scheme.
-3. Select `My Mac` as the destination. This is a macOS app, so it does not launch in an iOS Simulator.
+3. Select **My Mac** as the destination.
 4. Press Run.
 
 From this folder:
@@ -31,20 +50,41 @@ From the repository root:
 swift run --package-path apps/MoleCubeMac MoleCubeMac
 ```
 
-## Backend Mapping
+## Backend mapping
+
+MoleCube uses the local Mole CLI as its backend:
 
 - Status: `bin/status-go --json`, falling back to `go run ./cmd/status --json`.
 - Analyze: `bin/analyze-go --json`, falling back to `go run ./cmd/analyze --json`.
 - App inventory: `./mole uninstall --list`.
 - History: `./mole history --json`.
 
-The backend sets `NO_COLOR=1` for app integration. Read-only inventory and dry-run previews also set `MOLE_TEST_NO_AUTH=1` and `MO_NO_OPLOG=1`; real uninstall runs keep authentication enabled.
+The backend sets `NO_COLOR=1` for app integration. Read-only inventory and
+dry-run previews also set `MOLE_TEST_NO_AUTH=1` and `MO_NO_OPLOG=1`; real
+uninstall runs keep authentication enabled.
 
-The shared Xcode scheme also sets `MOLECUBE_REPOSITORY_ROOT` to the current repository path so the app can find the local Mole CLI when launched from Xcode DerivedData.
+The shared Xcode scheme sets `MOLECUBE_REPOSITORY_ROOT` to the repository path,
+so the app can find the local Mole CLI when launched from Xcode DerivedData.
 
-## Next Steps
+## Build a distributable DMG
 
-- Add JSON contracts for clean, purge, installer, and optimize.
-- Replace placeholder cleanup/uninstall actions with preview-first flows.
-- Move localization into `Localizable.strings`.
-- Add an Xcode project or app bundle packaging target for signing and distribution.
+Use `Scripts/create_dmg.sh` only from a clean, tagged source revision. The script
+creates a Universal DMG and includes `LICENSE.txt`, `NOTICE.txt`, and
+`SOURCE-CODE.txt` next to `MoleCube.app`.
+
+Before creating a release, configure a Developer ID Application signing identity:
+
+```bash
+DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)" \
+DEVELOPMENT_TEAM="TEAMID" \
+apps/MoleCubeMac/Scripts/create_dmg.sh
+```
+
+The resulting DMG must be published together with a clear link to the matching
+source tag on <https://github.com/crayhuang/MoleCube>.
+
+## Development status
+
+MoleCube is intentionally conservative. It uses SwiftUI for the native UI and
+keeps destructive cleanup and uninstall flows preview-first, confirmation-based,
+and protected by Mole's safety rules.

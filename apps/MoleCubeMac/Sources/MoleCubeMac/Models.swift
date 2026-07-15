@@ -6,11 +6,12 @@ enum AppSection: String, CaseIterable, Identifiable {
     case optimize
     case analyze
     case status
+    case settings
 
     var id: String { rawValue }
 
     static var allCases: [AppSection] {
-        [.status, .clean, .uninstall, .analyze, .optimize]
+        [.status, .clean, .uninstall, .analyze]
     }
 }
 

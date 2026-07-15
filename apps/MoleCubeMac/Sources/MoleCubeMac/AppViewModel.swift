@@ -11,6 +11,7 @@ final class AppViewModel: ObservableObject {
     @Published var apps: [InstalledApp] = []
     @Published var selectedAppID: InstalledApp.ID?
     @Published var uninstallFilter: UninstallFilter = .installed
+    @Published var uninstallSearchQuery = ""
     @Published var historyEntries: [HistoryEntry] = []
     @Published var cleanCategories: [CleanCategory]
     @Published var selectedCleanCategoryID: CleanCategory.ID?
@@ -38,19 +39,36 @@ final class AppViewModel: ObservableObject {
     @Published var pendingAnalyzeDeleteEntry: AnalyzeEntry?
     @Published var deletingAnalyzePath: String?
     @Published var analyzeStatusMessage: String?
-    @Published var isScanningLeftovers = false
+    @Published private(set) var leftoverScanAppIDs: Set<InstalledApp.ID> = []
+    @Published private(set) var leftoverScanErrors: [InstalledApp.ID: String] = [:]
     @Published var appPendingUninstall: InstalledApp?
     @Published var uninstallPreviews: [InstalledApp.ID: UninstallPreview] = [:]
     @Published var repositoryPath = ""
+    @Published var installedMolePath: String?
+    @Published var installedMoleVersion: String?
+    @Published var isInstallingMole = false
+    @Published var isUpdatingMole = false
+    @Published var moleUpdateProgress = 0.0
+    @Published var moleUpdateStageKey = "moleUpdateIdle"
+    @Published var moleUpdateLog = ""
+    @Published var isMoleInstallerPresented = false
     @Published var loadSamples: [Double] = Array(repeating: 0, count: 12)
+    @Published var licenseStatus: LicenseStatus
+    @Published var licenseCodeInput = ""
+    @Published var isActivatingLicense = false
+    @Published var isDeactivatingLicense = false
 
     private var backend: LocalCLIBackend?
+    private let licenseManager: LicenseManager
     private var isLiveStatusRunning = false
     private var didInitializeCleanPathSelection = false
     private var lastAppsRefreshAt: Date?
     private let appInventoryCacheDuration: TimeInterval = 300
 
     init() {
+        let licenseManager = LicenseManager()
+        self.licenseManager = licenseManager
+        licenseStatus = licenseManager.currentStatus()
         cleanCategories = [
             CleanCategory(nameKey: "browserCache", detailKey: "browserCacheDetail", sizeBytes: nil, riskKey: "lowRisk", selected: true),
             CleanCategory(nameKey: "developerCache", detailKey: "developerCacheDetail", sizeBytes: nil, riskKey: "mediumRisk", selected: true),
@@ -68,15 +86,137 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    var licenseStatusTitle: String {
+        switch licenseStatus.kind {
+        case .trial:
+            text("licenseTrialActive")
+        case .pro:
+            text("licenseProActive")
+        case .expired:
+            text("licenseTrialExpired")
+        }
+    }
+
+    var licenseStatusDetail: String {
+        switch licenseStatus.kind {
+        case let .trial(daysRemaining):
+            return String(format: text("trialDaysRemaining"), daysRemaining)
+        case let .pro(holder, expiresAt):
+            if let expiresAt {
+                return String(format: text("licenseExpiresOn"), Self.licenseDateFormatter.string(from: expiresAt))
+            }
+            return String(format: text("licenseHolder"), holder)
+        case .expired:
+            return text("licenseTrialExpiredDetail")
+        }
+    }
+
+    var hasProAccess: Bool { licenseStatus.hasProAccess }
+    var licenseDeviceID: String { licenseManager.deviceID }
+    var licenseCheckoutAvailable: Bool { LemonSqueezyConfiguration.checkoutURL != nil }
+
+    func refreshLicenseStatus() {
+        licenseStatus = licenseManager.currentStatus()
+    }
+
+    func validateStoredLicense(silently: Bool = true) async {
+        guard licenseManager.hasStoredLicense else {
+            refreshLicenseStatus()
+            return
+        }
+
+        do {
+            licenseStatus = try await licenseManager.validateStoredLicense()
+        } catch {
+            refreshLicenseStatus()
+            if !silently {
+                errorMessage = licenseErrorMessage(for: error)
+            }
+        }
+    }
+
+    func activateLicense() async {
+        guard !isActivatingLicense else { return }
+        let code = licenseCodeInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty else {
+            errorMessage = text("licenseCodeRequired")
+            return
+        }
+
+        isActivatingLicense = true
+        defer { isActivatingLicense = false }
+        do {
+            licenseStatus = try await licenseManager.activate(code: code)
+            licenseCodeInput = ""
+            commandOutputTitle = text("licenseActivated")
+            commandOutput = text("licenseActivatedMessage")
+        } catch {
+            errorMessage = licenseErrorMessage(for: error)
+        }
+    }
+
+    func deactivateLicense() async {
+        guard !isDeactivatingLicense else { return }
+        isDeactivatingLicense = true
+        defer { isDeactivatingLicense = false }
+        do {
+            try await licenseManager.deactivate()
+            commandOutputTitle = text("licenseDeactivated")
+            commandOutput = text("licenseDeactivatedMessage")
+        } catch {
+            errorMessage = licenseErrorMessage(for: error)
+        }
+        licenseStatus = licenseManager.currentStatus()
+    }
+
+    func openLicenseCheckout() {
+        guard let checkoutURL = LemonSqueezyConfiguration.checkoutURL else {
+            errorMessage = text("licenseNotConfigured")
+            return
+        }
+        NSWorkspace.shared.open(checkoutURL)
+    }
+
+    func requireProAccess() -> Bool {
+        refreshLicenseStatus()
+        guard hasProAccess else {
+            selectedSection = .settings
+            errorMessage = text("proRequired")
+            return false
+        }
+        return true
+    }
+
+    private func licenseErrorMessage(for error: Error) -> String {
+        guard let error = error as? LicenseError else { return error.localizedDescription }
+        switch error {
+        case .configurationMissing: return text("licenseNotConfigured")
+        case .invalidLicense, .invalidResponse: return text("licenseInvalidLicense")
+        case .activationLimitReached: return text("licenseActivationLimit")
+        case .licenseExpired: return text("licenseExpiredCode")
+        case .networkUnavailable: return text("licenseNetworkError")
+        case let .remoteMessage(message): return message
+        case .noActiveLicense: return text("licenseNoActiveLicense")
+        }
+    }
+
+    private static let licenseDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
     var selectedApp: InstalledApp? {
-        if let selectedAppID, let app = apps.first(where: { $0.id == selectedAppID }) {
+        let visibleApps = filteredApps
+        if let selectedAppID, let app = visibleApps.first(where: { $0.id == selectedAppID }) {
             return app
         }
-        return apps.first
+        return visibleApps.first
     }
 
     var filteredApps: [InstalledApp] {
-        switch uninstallFilter {
+        let scopedApps: [InstalledApp] = switch uninstallFilter {
         case .installed:
             apps
         case .extensions:
@@ -84,6 +224,16 @@ final class AppViewModel: ObservableObject {
                 let searchable = "\(app.name) \(app.bundleID) \(app.path) \(app.source)".lowercased()
                 return searchable.contains("extension") || searchable.contains(".appex") || searchable.contains("plugin")
             }
+        }
+
+        let query = uninstallSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return scopedApps
+        }
+
+        return scopedApps.filter { app in
+            let searchable = "\(app.name) \(app.bundleID) \(app.path) \(app.source)"
+            return searchable.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
         }
     }
 
@@ -207,8 +357,149 @@ final class AppViewModel: ObservableObject {
     }
 
     func startInitialLoad() async {
+        await refreshMoleInstallStatus()
         await refreshStatus()
         await refreshPermissionStatus()
+        await validateStoredLicense()
+    }
+
+    func refreshMoleInstallStatus() async {
+        guard let backend else { return }
+        installedMolePath = await backend.installedMolePath()
+        installedMoleVersion = await backend.installedMoleVersion()
+    }
+
+    func installMoleIfNeeded() async {
+        guard let backend, !isInstallingMole else { return }
+        if await backend.installedMolePath() != nil {
+            await refreshMoleInstallStatus()
+            return
+        }
+
+        isInstallingMole = true
+        defer { isInstallingMole = false }
+        errorMessage = nil
+        moleUpdateProgress = 0.04
+        moleUpdateStageKey = "moleInstallPreparing"
+        moleUpdateLog = "\(timestampString())  \(text(moleUpdateStageKey))\n"
+
+        do {
+            let output = try await backend.installMoleForCurrentUser { [weak self] event in
+                Task { @MainActor in
+                    self?.appendMoleUpdateLog(event.chunk)
+                }
+            }
+            await refreshMoleInstallStatus()
+            moleUpdateProgress = 1
+            moleUpdateStageKey = "moleInstallDone"
+            isMoleInstallerPresented = false
+            commandOutputTitle = text("moleInstallCompleteTitle")
+            commandOutput = output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text("moleInstallCompleteMessage") : output
+        } catch {
+            moleUpdateStageKey = "moleInstallFailed"
+            errorMessage = message(for: error)
+        }
+    }
+
+    func updateInstalledMole(nightly: Bool) async {
+        guard let backend, !isUpdatingMole, !isInstallingMole else { return }
+        guard await backend.installedMolePath() != nil else {
+            await refreshMoleInstallStatus()
+            errorMessage = text("moleNotInstalled")
+            return
+        }
+
+        isUpdatingMole = true
+        defer { isUpdatingMole = false }
+        errorMessage = nil
+        moleUpdateProgress = 0.04
+        moleUpdateStageKey = nightly ? "moleUpdatePreparingNightly" : "moleUpdatePreparingStable"
+        moleUpdateLog = "\(timestampString())  \(text(moleUpdateStageKey))\n"
+
+        do {
+            let output = try await backend.updateInstalledMole(nightly: nightly) { [weak self] event in
+                Task { @MainActor in
+                    self?.appendMoleUpdateLog(event.chunk)
+                }
+            }
+            await refreshMoleInstallStatus()
+            moleUpdateProgress = 1
+            moleUpdateStageKey = "moleUpdateDone"
+            commandOutputTitle = text("moleUpdateCompleteTitle")
+            commandOutput = output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? text("moleUpdateCompleteMessage")
+                : output
+        } catch {
+            moleUpdateStageKey = "moleUpdateFailed"
+            errorMessage = message(for: error)
+        }
+    }
+
+    private func appendMoleUpdateLog(_ chunk: String) {
+        let cleanChunk = chunk
+            .replacingOccurrences(of: "\u{001B}\\[[0-9;]*[A-Za-z]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = cleanChunk
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !lines.isEmpty else { return }
+
+        for line in lines {
+            updateMoleProgress(from: line)
+            moleUpdateLog += "\(timestampString())  \(line)\n"
+        }
+
+        let maxLength = 12_000
+        if moleUpdateLog.count > maxLength {
+            moleUpdateLog = String(moleUpdateLog.suffix(maxLength))
+        }
+    }
+
+    private func updateMoleProgress(from line: String) {
+        let normalized = line.lowercased()
+        let stage: (Double, String)?
+        if normalized.contains("fetching mole source") || normalized.contains("downloading latest") ||
+            normalized.contains("downloading nightly") {
+            stage = (0.12, "moleUpdateFetching")
+        } else if normalized.contains("installed mole") || normalized.contains("installed mo alias") {
+            stage = (0.32, "moleUpdateInstallingCore")
+        } else if normalized.contains("installed modules") {
+            stage = (0.46, "moleUpdateInstallingModules")
+        } else if normalized.contains("installed libraries") {
+            stage = (0.56, "moleUpdateInstallingLibraries")
+        } else if normalized.contains("downloading analyze") || normalized.contains("building analyze") ||
+            normalized.contains("repairing analyze") || normalized.contains("using bundled analyze") {
+            stage = (0.70, "moleUpdateAnalyze")
+        } else if normalized.contains("downloaded analyze") || normalized.contains("keeping existing analyze") ||
+            normalized.contains("built analyze") {
+            stage = (0.78, "moleUpdateAnalyze")
+        } else if normalized.contains("downloading status") || normalized.contains("building status") ||
+            normalized.contains("repairing status") || normalized.contains("using bundled status") {
+            stage = (0.86, "moleUpdateStatus")
+        } else if normalized.contains("downloaded status") || normalized.contains("keeping existing status") ||
+            normalized.contains("built status") {
+            stage = (0.92, "moleUpdateStatus")
+        } else if normalized.contains("updated to latest") || normalized.contains("mole installed") ||
+            normalized.contains("successfully") {
+            stage = (1, "moleUpdateDone")
+        } else if normalized.contains("checksum verification failed") {
+            stage = (max(moleUpdateProgress, 0.72), "moleUpdateVerifying")
+        } else {
+            stage = nil
+        }
+
+        if let stage {
+            moleUpdateProgress = max(moleUpdateProgress, stage.0)
+            moleUpdateStageKey = stage.1
+        }
+    }
+
+    private func timestampString() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: Date())
     }
 
     func runScan() async {
@@ -319,14 +610,19 @@ final class AppViewModel: ObservableObject {
         selectedCleanCategoryID = category.id
     }
 
-    func refreshAnalyze(path: String? = nil) async {
-        guard let backend else { return }
+    @discardableResult
+    func refreshAnalyze(path: String? = nil, reportErrors: Bool = true) async -> Bool {
+        guard let backend else { return false }
         isLoadingAnalyze = true
         defer { isLoadingAnalyze = false }
         do {
             analyzeOutput = try await backend.analyze(path: path)
+            return true
         } catch {
-            errorMessage = error.localizedDescription
+            if reportErrors {
+                errorMessage = error.localizedDescription
+            }
+            return false
         }
     }
 
@@ -351,6 +647,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func requestAnalyzeDelete(_ entry: AnalyzeEntry) {
+        guard requireProAccess() else { return }
         pendingAnalyzeDeleteEntry = entry
     }
 
@@ -359,6 +656,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func confirmPendingAnalyzeDelete() async {
+        guard requireProAccess() else { return }
         guard let backend, !isRunningCommand, deletingAnalyzePath == nil else { return }
         guard let entry = pendingAnalyzeDeleteEntry else { return }
 
@@ -374,13 +672,24 @@ final class AppViewModel: ObservableObject {
         analyzeStatusMessage = text("movingToTrash")
 
         do {
-            let output = try await backend.moveAnalyzeItemToTrash(path: entry.path)
+            let result = try await backend.moveAnalyzeItemToTrash(path: entry.path)
             removeAnalyzeEntryLocally(entry)
             analyzeStatusMessage = String(format: text("analyzeMovedToTrashInline"), entry.name)
             commandOutputTitle = "\(text("analyzeDeleteCompleteTitle")): \(entry.name)"
-            commandOutput = output.isEmpty ? text("emptyOutput") : output
-            await refreshAnalyze(path: currentPath)
-            analyzeStatusMessage = String(format: text("analyzeMovedToTrashInline"), entry.name)
+            var output = result.output
+            let didRefresh = await refreshAnalyze(path: currentPath, reportErrors: false)
+            if didRefresh {
+                // A recycle operation may finish just before filesystem metadata settles.
+                // Keep the just-removed path out of the refreshed presentation as well.
+                removeAnalyzeEntryLocally(entry)
+                analyzeStatusMessage = String(format: text("analyzeTrashRefreshComplete"), entry.name)
+                output += "\n\n\(text("analyzeMapRefreshComplete"))"
+            } else {
+                analyzeStatusMessage = String(format: text("analyzeTrashRefreshFailed"), entry.name)
+                output += "\n\n\(text("analyzeMapRefreshFailed"))"
+                errorMessage = text("analyzeMapRefreshFailed")
+            }
+            commandOutput = output
             await refreshStatus()
             await refreshHistory()
         } catch {
@@ -505,6 +814,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func requestCleanNow() {
+        guard requireProAccess() else { return }
         guard hasScannedCleanCategories else {
             errorMessage = text("scanBeforeCleanup")
             return
@@ -516,6 +826,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func requestCleanSelectedPathsNow() {
+        guard requireProAccess() else { return }
         guard hasScannedCleanCategories else {
             errorMessage = text("scanBeforeCleanup")
             return
@@ -535,6 +846,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func requestCleanCategoryNow(_ category: CleanCategory) {
+        guard requireProAccess() else { return }
         guard hasScannedCleanCategories else {
             errorMessage = text("scanBeforeCleanup")
             return
@@ -558,6 +870,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func confirmCleanNow() async {
+        guard requireProAccess() else { return }
         guard let backend, !isRunningCommand else { return }
         isCleanConfirmationPresented = false
         isRunningCommand = true
@@ -595,6 +908,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func runMoleCommand(title: String, arguments: [String], timeoutSeconds: UInt64 = 90, standardInput: String? = nil) async {
+        guard !moleCommandRequiresPro(arguments) || requireProAccess() else { return }
         guard let backend, !isRunningCommand else { return }
         isRunningCommand = true
         defer { isRunningCommand = false }
@@ -620,6 +934,41 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    private func moleCommandRequiresPro(_ arguments: [String]) -> Bool {
+        guard let command = arguments.first else { return false }
+        let isPreview = arguments.contains("--dry-run") || arguments.contains("--whitelist") || arguments.contains("--paths")
+        switch command {
+        case "clean", "uninstall", "purge", "installer", "optimize":
+            return !isPreview
+        case "touchid":
+            return arguments.contains("enable") || arguments.contains("disable")
+        default:
+            return false
+        }
+    }
+
+    func terminateProcess(_ process: StatusSnapshot.ProcessInfo) async {
+        guard let backend, !isRunningCommand else { return }
+        guard let pid = process.pid else {
+            errorMessage = text("processMissingPID")
+            return
+        }
+
+        isRunningCommand = true
+        defer { isRunningCommand = false }
+        errorMessage = nil
+
+        do {
+            try await backend.terminateProcess(pid: pid)
+            commandOutputTitle = text("processStopCompleteTitle")
+            let name = process.name ?? process.command ?? "\(pid)"
+            commandOutput = String(format: text("processStopCompleteMessage"), name, pid)
+            await refreshStatus()
+        } catch {
+            errorMessage = "\(text("processStopFailed"))\n\(message(for: error))"
+        }
+    }
+
     func runOptimizePreview() async {
         guard let backend, !isRunningCommand else { return }
         isRunningCommand = true
@@ -636,6 +985,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func runOptimizeWithAuthorization() async {
+        guard requireProAccess() else { return }
         guard let backend, !isRunningCommand else { return }
         isRunningCommand = true
         defer { isRunningCommand = false }
@@ -672,6 +1022,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func requestUninstallSelectedApp(_ explicitApp: InstalledApp? = nil) {
+        guard requireProAccess() else { return }
         guard let app = explicitApp ?? selectedApp else {
             errorMessage = text("noAppSelected")
             return
@@ -688,6 +1039,7 @@ final class AppViewModel: ObservableObject {
     }
 
     func confirmPendingUninstall() async {
+        guard requireProAccess() else { return }
         guard let backend, !isRunningCommand else { return }
         guard let app = appPendingUninstall else {
             errorMessage = text("noAppSelected")
@@ -722,13 +1074,16 @@ final class AppViewModel: ObservableObject {
     }
 
     func scanSelectedAppLeftovers(app explicitApp: InstalledApp? = nil) async {
-        guard let backend, !isScanningLeftovers else { return }
+        guard let backend else { return }
         guard let app = explicitApp ?? selectedApp else {
             errorMessage = text("noAppSelected")
             return
         }
-        isScanningLeftovers = true
-        defer { isScanningLeftovers = false }
+        guard !leftoverScanAppIDs.contains(app.id) else { return }
+
+        leftoverScanAppIDs.insert(app.id)
+        leftoverScanErrors[app.id] = nil
+        defer { leftoverScanAppIDs.remove(app.id) }
         errorMessage = nil
         let uninstallName = app.uninstallName
         do {
@@ -736,7 +1091,9 @@ final class AppViewModel: ObservableObject {
             uninstallPreviews[app.id] = parseUninstallPreview(output: output, app: app)
             selectFirstFilteredAppIfNeeded()
         } catch {
-            errorMessage = message(for: error)
+            let scanError = message(for: error)
+            leftoverScanErrors[app.id] = scanError
+            errorMessage = scanError
         }
     }
 
@@ -747,6 +1104,14 @@ final class AppViewModel: ObservableObject {
 
     func uninstallPreview(for app: InstalledApp) -> UninstallPreview? {
         uninstallPreviews[app.id]
+    }
+
+    func isScanningLeftovers(for app: InstalledApp) -> Bool {
+        leftoverScanAppIDs.contains(app.id)
+    }
+
+    func leftoverScanError(for app: InstalledApp) -> String? {
+        leftoverScanErrors[app.id]
     }
 
     func revealInFinder(_ path: String) {
@@ -777,8 +1142,23 @@ final class AppViewModel: ObservableObject {
 
     private func removeAnalyzeEntryLocally(_ entry: AnalyzeEntry) {
         guard var output = analyzeOutput else { return }
-        output.entries.removeAll { $0.path == entry.path }
-        output.largeFiles?.removeAll { $0.path == entry.path }
+        let deletedPath = URL(fileURLWithPath: entry.path).standardizedFileURL.path
+        let deletedPrefix = deletedPath.hasSuffix("/") ? deletedPath : "\(deletedPath)/"
+
+        output.entries.removeAll {
+            $0.path == deletedPath || $0.path.hasPrefix(deletedPrefix)
+        }
+        output.largeFiles?.removeAll {
+            $0.path == deletedPath || $0.path.hasPrefix(deletedPrefix)
+        }
+
+        // When a large file is shown from inside a direct child folder, preserve
+        // the map's geometry until the next scan by reducing that parent as well.
+        if let parentIndex = output.entries.indices
+            .filter({ deletedPath.hasPrefix(output.entries[$0].path + "/") })
+            .max(by: { output.entries[$0].path.count < output.entries[$1].path.count }) {
+            output.entries[parentIndex].size = max(0, output.entries[parentIndex].size - entry.size)
+        }
         output.totalSize = max(0, output.totalSize - entry.size)
         if let totalFiles = output.totalFiles {
             output.totalFiles = max(0, totalFiles - 1)
@@ -790,7 +1170,32 @@ final class AppViewModel: ObservableObject {
         if case let CLIError.commandTimedOut(command) = error {
             return "\(text("commandTimedOutTitle"))\n\(command)\n\n\(text("commandTimedOutDetail"))"
         }
-        return error.localizedDescription
+        let message = error.localizedDescription
+        let normalized = message.lowercased()
+        if normalized.contains("mole is not installed") {
+            isMoleInstallerPresented = true
+            return text("moleNotInstalled")
+        }
+        if normalized.contains("downloaded helper binary could not be verified") ||
+            normalized.contains("checksum verification failed") ||
+            normalized.contains("attestation verification failed") {
+            return "\(text("moleUpdateVerificationFailed"))\n\n\(message)"
+        }
+        if normalized.contains("network request did not complete") ||
+            normalized.contains("could not resolve host") ||
+            normalized.contains("connection timed out") ||
+            normalized.contains("operation timed out") ||
+            normalized.contains("curl: (28)") ||
+            normalized.contains("bytes received") ||
+            normalized.contains("failed to connect") {
+            return "\(text("moleUpdateNetworkFailed"))\n\n\(message)"
+        }
+        if normalized.contains("/dev/tty") ||
+            normalized.contains("device not configured") ||
+            normalized.contains("admin access denied") {
+            return text("adminAccessDeniedFriendly")
+        }
+        return message
     }
 
     private func appendStatusLine(to output: String, status: String) -> String {
@@ -929,6 +1334,37 @@ enum Localizer {
             "status": "系统状态",
             "history": "操作历史",
             "settings": "设置",
+            "settingsShortcutDetail": "语言、命令与安全选项",
+            "licenseAndTrial": "授权与试用",
+            "licenseAndTrialSubtitle": "14 天 Pro 试用和 Lemon Squeezy 授权管理",
+            "licenseTrialActive": "Pro 试用中",
+            "trialDaysRemaining": "试用剩余 %d 天，所有 Pro 功能可用。",
+            "licenseTrialExpired": "试用期已结束",
+            "licenseTrialExpiredDetail": "输入授权码后可继续使用 Pro 功能。",
+            "licenseProActive": "MoleCube Pro 已激活",
+            "licenseHolder": "授权给 %@",
+            "licenseExpiresOn": "有效期至 %@",
+            "licenseCode": "授权码",
+            "licenseCodePlaceholder": "粘贴 Lemon Squeezy 授权码",
+            "licenseCodeRequired": "请输入授权码。",
+            "activateLicense": "激活授权码",
+            "activatingLicense": "正在激活",
+            "licenseActivated": "授权已激活",
+            "licenseActivatedMessage": "MoleCube Pro 已可在这台 Mac 上使用。",
+            "licenseDeactivate": "移除此授权码",
+            "licenseDeactivating": "正在释放本机授权席位",
+            "licenseDeactivated": "授权已移除",
+            "licenseDeactivatedMessage": "此 Mac 已从 Lemon Squeezy 授权设备中移除。",
+            "licensePurchase": "购买 MoleCube Pro",
+            "licenseNotConfigured": "此构建尚未配置 Lemon Squeezy 商店信息。请在 Xcode 的 Info 设置中填写商店、商品、版本和购买链接。",
+            "licenseInvalidLicense": "授权码无效，或不属于 MoleCube Pro。请确认复制完整后重试。",
+            "licenseActivationLimit": "此授权码已达到可激活设备数量。请先在另一台 Mac 上移除授权，或联系支持。",
+            "licenseExpiredCode": "此授权码已过期。",
+            "licenseNetworkError": "无法连接 Lemon Squeezy 验证授权，请检查网络后重试。",
+            "licenseNoActiveLicense": "这台 Mac 没有可移除的授权。",
+            "licenseDeviceID": "本机设备标识",
+            "copy": "复制",
+            "proRequired": "14 天试用已结束。请在设置中激活 MoleCube Pro 后继续执行此操作。",
             "subtitle": "可视化清理、卸载、分析与状态监控工作台",
             "dashboardHeroTitle": "更懂你的 Mac。\n清理更安心。",
             "dashboardHeroSubtitle": "扫描空间占用、应用残留和系统状态。先预览，再确认，把每一步都交代清楚。",
@@ -968,6 +1404,52 @@ enum Localizer {
             "touchIDStatusDetail": "检查 sudo 是否已启用 Touch ID。",
             "moleCommandCenter": "Mole 命令中心",
             "allMoleCommands": "覆盖命令行能力",
+            "moleInstallRequiredTitle": "需要先安装 Mole",
+            "moleInstallRequiredSubtitle": "命令中心依赖本机 mo 命令",
+            "moleInstallPromptTitle": "未检测到 mo 命令",
+            "moleInstallPromptDetail": "MoleCube 会优先使用应用内置组件离线安装 Mole 到 ~/.local/bin，并同步命令模块到 ~/.config/mole。安装完成后即可在终端和命令中心使用 mo。",
+            "installMole": "安装 Mole",
+            "installingMole": "正在安装",
+            "moleInstallCompleteTitle": "Mole 安装完成",
+            "moleInstallCompleteMessage": "Mole 已安装完成，可以继续使用命令中心。",
+            "moleInstallPreparing": "准备安装 Mole",
+            "moleInstallDone": "安装完成",
+            "moleInstallFailed": "安装失败",
+            "moleCLIManagementTitle": "Mole 命令行组件",
+            "moleCLIManagementSubtitle": "安装状态与更新",
+            "moleCLIReadyTitle": "Mole 命令行已就绪",
+            "installedVersion": "当前版本",
+            "updateStableMole": "更新稳定版",
+            "updateNightlyShort": "夜间版",
+            "updatingMole": "正在更新",
+            "moleUpdateCompleteTitle": "Mole 更新完成",
+            "moleUpdateCompleteMessage": "Mole 命令行已更新，并重新读取了当前版本。",
+            "moleUpdateVerificationFailed": "更新包校验没有通过。MoleCube 已保留当前可用版本，请稍后重试。",
+            "moleUpdateNetworkFailed": "更新下载没有完成。请检查网络或代理后再试。",
+            "moleUpdateIdle": "等待更新",
+            "moleUpdatePreparingStable": "准备更新稳定版",
+            "moleUpdatePreparingNightly": "准备更新夜间版",
+            "moleUpdateFetching": "正在获取 Mole 源码",
+            "moleUpdateInstallingCore": "正在安装核心命令",
+            "moleUpdateInstallingModules": "正在同步命令模块",
+            "moleUpdateInstallingLibraries": "正在同步依赖库",
+            "moleUpdateAnalyze": "正在准备磁盘分析组件",
+            "moleUpdateStatus": "正在准备系统状态组件",
+            "moleUpdateVerifying": "正在校验下载内容",
+            "moleUpdateDone": "更新完成",
+            "moleUpdateFailed": "更新失败",
+            "moleUpdateWaitingLog": "等待更新日志...",
+            "moleNotInstalled": "尚未安装 Mole，请先完成安装。",
+            "moleInstallerSheetTitle": "安装 Mole 命令行组件",
+            "moleInstallerSheetSubtitle": "MoleCube 需要 Mole 来执行安全清理、应用卸载和系统维护。安装优先使用应用内置组件，不依赖 GitHub 网络。",
+            "moleInstallerSafetyTitle": "安全且可控",
+            "moleInstallerSafetyDetail": "仅安装 Mole 的命令模块，不会立即扫描、清理或删除任何文件。",
+            "moleInstallerLocationTitle": "安装到用户目录",
+            "moleInstallerLocationDetail": "安装位置为 ~/.local/bin，无需用户打开终端输入命令。",
+            "moleInstallerUpdateTitle": "支持应用内更新",
+            "moleInstallerUpdateDetail": "安装完成后可在 MoleCube 中查看版本，并更新稳定版。",
+            "installMoleNow": "安装 Mole",
+            "notNow": "暂不安装",
             "cleanPreviewCommand": "预览清理",
             "cleanPreviewCommandDetail": "扫描可清理项目，不删除。",
             "cleanRunCommand": "执行清理",
@@ -1051,6 +1533,15 @@ enum Localizer {
             "networkAndPower": "网络与电源",
             "storage": "存储",
             "topProcesses": "高负载进程",
+            "action": "操作",
+            "stopProcess": "停止进程",
+            "processStopConfirmTitle": "确认停止进程？",
+            "processStopConfirmMessage": "将向 %@（PID %d）发送停止请求。未保存的数据可能会丢失，系统进程会被保护或由 macOS 拒绝。",
+            "processStopCompleteTitle": "进程已停止",
+            "processStopCompleteMessage": "已向 %@（PID %d）发送停止请求，并刷新系统状态。",
+            "processStopFailed": "无法停止进程。",
+            "processStopDisabled": "系统关键进程或当前应用不能在这里停止。",
+            "processMissingPID": "这个进程缺少 PID，无法停止。",
             "loadAverage": "负载均值",
             "cpuCores": "核心",
             "temperature": "温度",
@@ -1165,6 +1656,10 @@ enum Localizer {
             "analyzeDeleteConfirmationMessage": "将把「%@」移到废纸篓，预计占用 %@。\n\n路径：%@\n\n请确认这不是系统、工作资料或仍在使用的文件夹。移到废纸篓后通常可以恢复，但清空废纸篓后将无法恢复。",
             "analyzeDeleteCompleteTitle": "已移到废纸篓",
             "analyzeMovedToTrashInline": "已将「%@」移到废纸篓，正在刷新空间图。",
+            "analyzeTrashRefreshComplete": "已将「%@」移到废纸篓，空间图已刷新。",
+            "analyzeTrashRefreshFailed": "已将「%@」移到废纸篓，但空间图刷新失败。请点击顶部刷新后重试。",
+            "analyzeMapRefreshComplete": "已重新分析当前目录，空间图已更新。",
+            "analyzeMapRefreshFailed": "文件已移到废纸篓，但无法重新分析当前目录。请点击顶部刷新后重试。",
             "appInventory": "应用清单",
             "scanLeftovers": "扫描残留",
             "installed": "已安装",
@@ -1181,6 +1676,9 @@ enum Localizer {
             "reviewOnlyFiles": "需人工确认",
             "otherFiles": "其他文件",
             "readingRelatedFiles": "正在读取残留文件",
+            "waitingToScanRelatedFiles": "等待开始读取残留文件",
+            "leftoverScanFailed": "无法读取残留文件",
+            "retryScanLeftovers": "重新读取",
             "files": "文件项",
             "defaultDeleteMode": "默认删除模式",
             "moveToTrashNote": "卸载会先移动到废纸篓。系统应用、白名单路径、认证与会话数据默认跳过。",
@@ -1198,6 +1696,12 @@ enum Localizer {
             "whitelist": "白名单",
             "repository": "仓库路径",
             "language": "语言",
+            "appLanguage": "界面语言",
+            "languageSettingsDetail": "切换后立即应用到 MoleCube 界面。",
+            "openSourceNoticeTitle": "开源许可",
+            "openSourceNoticeDetail": "MoleCube 与 Mole 的 GPL-3.0 说明",
+            "openSourceNoticeBody": "MoleCube 包含并使用由 tw93 及贡献者维护的开源 Mole CLI。MoleCube 按 GPL-3.0 发行；DMG 会提供许可证、来源说明和对应源码获取方式。",
+            "openSourceNoticeSource": "查看 MoleCube 对应源码",
             "dryRunOutput": "预览结果",
             "backendPreview": "来自 Mole 本地 CLI 后端，仅预览，不执行删除",
             "previewOnlyTitle": "这是安全预览",
@@ -1209,8 +1713,12 @@ enum Localizer {
             "operationNeedsReviewTitle": "需要确认结果",
             "operationNeedsReviewSubtitle": "操作已结束，但仍有项目需要你查看。",
             "operationNeedsReviewMessage": "部分文件可能因为权限、保护规则或仍在使用而未处理。请查看下方技术详情，再决定是否手动处理。",
+            "searchAppsPlaceholder": "搜索应用、Bundle ID 或路径",
+            "clearSearch": "清除搜索",
             "technicalDetails": "技术详情",
             "copyOutput": "复制输出",
+            "copyCommand": "复制命令",
+            "copiedCommand": "已复制命令",
             "lines": "行",
             "cleanDryRunTitle": "Mole 清理预览",
             "uninstallDryRunTitle": "Mole 卸载预览",
@@ -1237,6 +1745,7 @@ enum Localizer {
             "uninstallIncompleteTitle": "卸载未完成",
             "uninstallRemovedFromList": "已确认应用本体不在原路径，并已从应用清单移除。",
             "uninstallStillPresent": "卸载命令已结束，但应用本体仍在原路径。可能被系统权限、运行中的进程或官方卸载器要求拦截，请查看上方输出。",
+            "adminAccessDeniedFriendly": "需要管理员权限才能继续处理这个应用。请确认系统权限弹窗，或先退出正在运行的应用后重试。如果你取消了授权，MoleCube 不会删除任何文件。",
             "commandTimedOutTitle": "这个操作执行时间过长，已自动停止。",
             "commandTimedOutDetail": "可能是正在扫描大量应用、磁盘路径或等待系统权限。你可以稍后重试，或先运行预览确认范围。",
             "cancel": "取消"
@@ -1260,6 +1769,37 @@ enum Localizer {
             "status": "系統狀態",
             "history": "操作記錄",
             "settings": "設定",
+            "settingsShortcutDetail": "語言、命令與安全選項",
+            "licenseAndTrial": "授權與試用",
+            "licenseAndTrialSubtitle": "14 天 Pro 試用與 Lemon Squeezy 授權管理",
+            "licenseTrialActive": "Pro 試用中",
+            "trialDaysRemaining": "試用剩餘 %d 天，所有 Pro 功能可用。",
+            "licenseTrialExpired": "試用期已結束",
+            "licenseTrialExpiredDetail": "輸入授權碼後可繼續使用 Pro 功能。",
+            "licenseProActive": "MoleCube Pro 已啟用",
+            "licenseHolder": "授權給 %@",
+            "licenseExpiresOn": "有效期限至 %@",
+            "licenseCode": "授權碼",
+            "licenseCodePlaceholder": "貼上 Lemon Squeezy 授權碼",
+            "licenseCodeRequired": "請輸入授權碼。",
+            "activateLicense": "啟用授權碼",
+            "activatingLicense": "正在啟用",
+            "licenseActivated": "授權已啟用",
+            "licenseActivatedMessage": "MoleCube Pro 已可在這台 Mac 上使用。",
+            "licenseDeactivate": "移除此授權碼",
+            "licenseDeactivating": "正在釋放此 Mac 的授權席位",
+            "licenseDeactivated": "授權已移除",
+            "licenseDeactivatedMessage": "此 Mac 已從 Lemon Squeezy 授權裝置中移除。",
+            "licensePurchase": "購買 MoleCube Pro",
+            "licenseNotConfigured": "此建置尚未設定 Lemon Squeezy 商店資訊。請在 Xcode 的 Info 設定中填寫商店、商品、版本和購買連結。",
+            "licenseInvalidLicense": "授權碼無效，或不屬於 MoleCube Pro。請確認完整複製後再試。",
+            "licenseActivationLimit": "此授權碼已達到可啟用裝置數量。請先在另一台 Mac 上移除授權，或聯絡支援。",
+            "licenseExpiredCode": "此授權碼已過期。",
+            "licenseNetworkError": "無法連線至 Lemon Squeezy 驗證授權，請檢查網路後重試。",
+            "licenseNoActiveLicense": "這台 Mac 沒有可移除的授權。",
+            "licenseDeviceID": "本機裝置識別碼",
+            "copy": "複製",
+            "proRequired": "14 天試用已結束。請在設定中啟用 MoleCube Pro 後繼續執行此操作。",
             "subtitle": "視覺化清理、卸載、分析與狀態監控工作台",
             "dashboardHeroTitle": "更懂你的 Mac。\n清理更安心。",
             "dashboardHeroSubtitle": "掃描空間佔用、應用程式殘留和系統狀態。先預覽，再確認，把每一步都交代清楚。",
@@ -1299,6 +1839,52 @@ enum Localizer {
             "touchIDStatusDetail": "檢查 sudo 是否已啟用 Touch ID。",
             "moleCommandCenter": "Mole 命令中心",
             "allMoleCommands": "覆蓋命令列能力",
+            "moleInstallRequiredTitle": "需要先安裝 Mole",
+            "moleInstallRequiredSubtitle": "命令中心依賴本機 mo 命令",
+            "moleInstallPromptTitle": "未偵測到 mo 命令",
+            "moleInstallPromptDetail": "MoleCube 會優先使用應用程式內建元件離線安裝 Mole 到 ~/.local/bin，並同步命令模組到 ~/.config/mole。安裝完成後即可在終端機和命令中心使用 mo。",
+            "installMole": "安裝 Mole",
+            "installingMole": "正在安裝",
+            "moleInstallCompleteTitle": "Mole 安裝完成",
+            "moleInstallCompleteMessage": "Mole 已安裝完成，可以繼續使用命令中心。",
+            "moleInstallPreparing": "準備安裝 Mole",
+            "moleInstallDone": "安裝完成",
+            "moleInstallFailed": "安裝失敗",
+            "moleCLIManagementTitle": "Mole 命令列元件",
+            "moleCLIManagementSubtitle": "安裝狀態與更新",
+            "moleCLIReadyTitle": "Mole 命令列已就緒",
+            "installedVersion": "目前版本",
+            "updateStableMole": "更新穩定版",
+            "updateNightlyShort": "夜間版",
+            "updatingMole": "正在更新",
+            "moleUpdateCompleteTitle": "Mole 更新完成",
+            "moleUpdateCompleteMessage": "Mole 命令列已更新，並重新讀取了目前版本。",
+            "moleUpdateVerificationFailed": "更新套件校驗沒有通過。MoleCube 已保留目前可用版本，請稍後重試。",
+            "moleUpdateNetworkFailed": "更新下載沒有完成。請檢查網路或代理後再試。",
+            "moleUpdateIdle": "等待更新",
+            "moleUpdatePreparingStable": "準備更新穩定版",
+            "moleUpdatePreparingNightly": "準備更新夜間版",
+            "moleUpdateFetching": "正在取得 Mole 原始碼",
+            "moleUpdateInstallingCore": "正在安裝核心命令",
+            "moleUpdateInstallingModules": "正在同步命令模組",
+            "moleUpdateInstallingLibraries": "正在同步依賴庫",
+            "moleUpdateAnalyze": "正在準備磁碟分析元件",
+            "moleUpdateStatus": "正在準備系統狀態元件",
+            "moleUpdateVerifying": "正在校驗下載內容",
+            "moleUpdateDone": "更新完成",
+            "moleUpdateFailed": "更新失敗",
+            "moleUpdateWaitingLog": "等待更新日誌...",
+            "moleNotInstalled": "尚未安裝 Mole，請先完成安裝。",
+            "moleInstallerSheetTitle": "安裝 Mole 命令列元件",
+            "moleInstallerSheetSubtitle": "MoleCube 需要 Mole 來執行安全清理、應用程式卸載和系統維護。安裝優先使用應用程式內建元件，不依賴 GitHub 網路。",
+            "moleInstallerSafetyTitle": "安全且可控",
+            "moleInstallerSafetyDetail": "僅安裝 Mole 的命令模組，不會立即掃描、清理或刪除任何檔案。",
+            "moleInstallerLocationTitle": "安裝到使用者目錄",
+            "moleInstallerLocationDetail": "安裝位置為 ~/.local/bin，無需使用者開啟終端機輸入命令。",
+            "moleInstallerUpdateTitle": "支援應用程式內更新",
+            "moleInstallerUpdateDetail": "安裝完成後可在 MoleCube 中查看版本，並更新穩定版。",
+            "installMoleNow": "安裝 Mole",
+            "notNow": "暫不安裝",
             "cleanPreviewCommand": "預覽清理",
             "cleanPreviewCommandDetail": "掃描可清理項目，不刪除。",
             "cleanRunCommand": "執行清理",
@@ -1382,6 +1968,15 @@ enum Localizer {
             "networkAndPower": "網路與電源",
             "storage": "儲存空間",
             "topProcesses": "高負載行程",
+            "action": "操作",
+            "stopProcess": "停止行程",
+            "processStopConfirmTitle": "確認停止行程？",
+            "processStopConfirmMessage": "將向 %@（PID %d）傳送停止請求。未儲存的資料可能會遺失，系統行程會被保護或由 macOS 拒絕。",
+            "processStopCompleteTitle": "行程已停止",
+            "processStopCompleteMessage": "已向 %@（PID %d）傳送停止請求，並重新整理系統狀態。",
+            "processStopFailed": "無法停止行程。",
+            "processStopDisabled": "系統關鍵行程或目前應用程式不能在這裡停止。",
+            "processMissingPID": "這個行程缺少 PID，無法停止。",
             "loadAverage": "負載平均",
             "cpuCores": "核心",
             "temperature": "溫度",
@@ -1496,6 +2091,10 @@ enum Localizer {
             "analyzeDeleteConfirmationMessage": "將把「%@」移到垃圾桶，預計占用 %@。\n\n路徑：%@\n\n請確認這不是系統、工作資料或仍在使用的資料夾。移到垃圾桶後通常可以恢復，但清空垃圾桶後將無法恢復。",
             "analyzeDeleteCompleteTitle": "已移到垃圾桶",
             "analyzeMovedToTrashInline": "已將「%@」移到垃圾桶，正在重新整理空間圖。",
+            "analyzeTrashRefreshComplete": "已將「%@」移到垃圾桶，空間圖已重新整理。",
+            "analyzeTrashRefreshFailed": "已將「%@」移到垃圾桶，但空間圖重新整理失敗。請點擊頂端重新整理後重試。",
+            "analyzeMapRefreshComplete": "已重新分析目前目錄，空間圖已更新。",
+            "analyzeMapRefreshFailed": "檔案已移到垃圾桶，但無法重新分析目前目錄。請點擊頂端重新整理後重試。",
             "appInventory": "應用程式清單",
             "scanLeftovers": "掃描殘留",
             "installed": "已安裝",
@@ -1512,6 +2111,9 @@ enum Localizer {
             "reviewOnlyFiles": "需人工確認",
             "otherFiles": "其他檔案",
             "readingRelatedFiles": "正在讀取殘留檔案",
+            "waitingToScanRelatedFiles": "等待開始讀取殘留檔案",
+            "leftoverScanFailed": "無法讀取殘留檔案",
+            "retryScanLeftovers": "重新讀取",
             "files": "檔案項目",
             "defaultDeleteMode": "預設刪除模式",
             "moveToTrashNote": "卸載會先移到廢紙簍。系統應用程式、白名單路徑、認證與工作階段資料預設跳過。",
@@ -1529,6 +2131,12 @@ enum Localizer {
             "whitelist": "白名單",
             "repository": "倉庫路徑",
             "language": "語言",
+            "appLanguage": "介面語言",
+            "languageSettingsDetail": "切換後會立即套用到 MoleCube 介面。",
+            "openSourceNoticeTitle": "開源授權",
+            "openSourceNoticeDetail": "MoleCube 與 Mole 的 GPL-3.0 說明",
+            "openSourceNoticeBody": "MoleCube 包含並使用由 tw93 及貢獻者維護的開源 Mole CLI。MoleCube 依 GPL-3.0 發行；DMG 會提供授權、來源說明與對應原始碼取得方式。",
+            "openSourceNoticeSource": "查看 MoleCube 對應原始碼",
             "dryRunOutput": "預覽結果",
             "backendPreview": "來自 Mole 本地 CLI 後端，僅預覽，不執行刪除",
             "previewOnlyTitle": "這是安全預覽",
@@ -1540,8 +2148,12 @@ enum Localizer {
             "operationNeedsReviewTitle": "需要確認結果",
             "operationNeedsReviewSubtitle": "操作已結束，但仍有項目需要你查看。",
             "operationNeedsReviewMessage": "部分檔案可能因為權限、保護規則或仍在使用而未處理。請查看下方技術詳情，再決定是否手動處理。",
+            "searchAppsPlaceholder": "搜尋應用程式、Bundle ID 或路徑",
+            "clearSearch": "清除搜尋",
             "technicalDetails": "技術詳情",
             "copyOutput": "複製輸出",
+            "copyCommand": "複製命令",
+            "copiedCommand": "已複製命令",
             "lines": "行",
             "cleanDryRunTitle": "Mole 清理預覽",
             "uninstallDryRunTitle": "Mole 卸載預覽",
@@ -1568,6 +2180,7 @@ enum Localizer {
             "uninstallIncompleteTitle": "卸載未完成",
             "uninstallRemovedFromList": "已確認應用程式本體不在原路徑，並已從應用程式清單移除。",
             "uninstallStillPresent": "卸載命令已結束，但應用程式本體仍在原路徑。可能被系統權限、執行中的行程或官方卸載器要求攔截，請查看上方輸出。",
+            "adminAccessDeniedFriendly": "需要管理員權限才能繼續處理這個應用程式。請確認系統權限視窗，或先退出正在執行的應用程式後重試。如果你取消了授權，MoleCube 不會刪除任何檔案。",
             "commandTimedOutTitle": "這個操作執行時間過長，已自動停止。",
             "commandTimedOutDetail": "可能是正在掃描大量應用程式、磁碟路徑或等待系統權限。你可以稍後重試，或先執行預覽確認範圍。",
             "cancel": "取消"
@@ -1591,6 +2204,37 @@ enum Localizer {
             "status": "Status",
             "history": "History",
             "settings": "Settings",
+            "settingsShortcutDetail": "Language, commands, and safety options",
+            "licenseAndTrial": "License and Trial",
+            "licenseAndTrialSubtitle": "14-day Pro trial and Lemon Squeezy license management",
+            "licenseTrialActive": "Pro trial active",
+            "trialDaysRemaining": "%d days left in your trial. All Pro features are available.",
+            "licenseTrialExpired": "Trial ended",
+            "licenseTrialExpiredDetail": "Enter a license code to continue using Pro features.",
+            "licenseProActive": "MoleCube Pro activated",
+            "licenseHolder": "Licensed to %@",
+            "licenseExpiresOn": "Valid until %@",
+            "licenseCode": "License code",
+            "licenseCodePlaceholder": "Paste your Lemon Squeezy license key",
+            "licenseCodeRequired": "Enter a license code.",
+            "activateLicense": "Activate license",
+            "activatingLicense": "Activating",
+            "licenseActivated": "License activated",
+            "licenseActivatedMessage": "MoleCube Pro is now available on this Mac.",
+            "licenseDeactivate": "Remove this license",
+            "licenseDeactivating": "Releasing this Mac's license seat",
+            "licenseDeactivated": "License removed",
+            "licenseDeactivatedMessage": "This Mac has been removed from the Lemon Squeezy license devices.",
+            "licensePurchase": "Buy MoleCube Pro",
+            "licenseNotConfigured": "Lemon Squeezy store details have not been configured for this build. Add the store, product, variant, and checkout URL in Xcode Info settings.",
+            "licenseInvalidLicense": "This license key is invalid or does not belong to MoleCube Pro. Paste the complete key and try again.",
+            "licenseActivationLimit": "This license key has reached its device activation limit. Remove a device on another Mac or contact support.",
+            "licenseExpiredCode": "This license code has expired.",
+            "licenseNetworkError": "MoleCube could not reach Lemon Squeezy to verify the license. Check your network and try again.",
+            "licenseNoActiveLicense": "There is no license on this Mac to remove.",
+            "licenseDeviceID": "This Mac's device ID",
+            "copy": "Copy",
+            "proRequired": "Your 14-day trial has ended. Activate MoleCube Pro in Settings to continue this action.",
             "subtitle": "A visual workspace for cleanup, uninstall, analysis, and system status.",
             "dashboardHeroTitle": "Know your Mac better.\nClean with confidence.",
             "dashboardHeroSubtitle": "Scan space usage, app leftovers, and system status. Preview first, confirm later, and keep every step understandable.",
@@ -1630,6 +2274,52 @@ enum Localizer {
             "touchIDStatusDetail": "Check whether sudo Touch ID is enabled.",
             "moleCommandCenter": "Mole Command Center",
             "allMoleCommands": "CLI coverage",
+            "moleInstallRequiredTitle": "Install Mole First",
+            "moleInstallRequiredSubtitle": "Command Center depends on the local mo command",
+            "moleInstallPromptTitle": "mo command was not detected",
+            "moleInstallPromptDetail": "MoleCube first installs Mole offline from bundled app components into ~/.local/bin and syncs command modules into ~/.config/mole. After installation, mo works in Terminal and Command Center.",
+            "installMole": "Install Mole",
+            "installingMole": "Installing",
+            "moleInstallCompleteTitle": "Mole Installed",
+            "moleInstallCompleteMessage": "Mole has been installed. You can continue using Command Center.",
+            "moleInstallPreparing": "Preparing Mole install",
+            "moleInstallDone": "Install complete",
+            "moleInstallFailed": "Install failed",
+            "moleCLIManagementTitle": "Mole CLI",
+            "moleCLIManagementSubtitle": "Installation and updates",
+            "moleCLIReadyTitle": "Mole CLI is ready",
+            "installedVersion": "Installed version",
+            "updateStableMole": "Update Stable",
+            "updateNightlyShort": "Nightly",
+            "updatingMole": "Updating",
+            "moleUpdateCompleteTitle": "Mole Updated",
+            "moleUpdateCompleteMessage": "The Mole CLI was updated and its installed version was refreshed.",
+            "moleUpdateVerificationFailed": "The update package could not be verified. MoleCube kept the current working version. Try again later.",
+            "moleUpdateNetworkFailed": "The update download did not complete. Check your network or proxy, then try again.",
+            "moleUpdateIdle": "Waiting to update",
+            "moleUpdatePreparingStable": "Preparing stable update",
+            "moleUpdatePreparingNightly": "Preparing nightly update",
+            "moleUpdateFetching": "Fetching Mole source",
+            "moleUpdateInstallingCore": "Installing core commands",
+            "moleUpdateInstallingModules": "Syncing command modules",
+            "moleUpdateInstallingLibraries": "Syncing libraries",
+            "moleUpdateAnalyze": "Preparing disk analyzer",
+            "moleUpdateStatus": "Preparing system status helper",
+            "moleUpdateVerifying": "Verifying download",
+            "moleUpdateDone": "Update complete",
+            "moleUpdateFailed": "Update failed",
+            "moleUpdateWaitingLog": "Waiting for update logs...",
+            "moleNotInstalled": "Mole is not installed yet. Install it first.",
+            "moleInstallerSheetTitle": "Install the Mole CLI",
+            "moleInstallerSheetSubtitle": "MoleCube uses Mole for safe cleanup, app removal, and system maintenance. Installation uses bundled app components first, without depending on GitHub network access.",
+            "moleInstallerSafetyTitle": "Safe and controlled",
+            "moleInstallerSafetyDetail": "This only installs Mole's command modules. It does not scan, clean, or delete files.",
+            "moleInstallerLocationTitle": "Installed for your account",
+            "moleInstallerLocationDetail": "Mole is installed in ~/.local/bin without requiring Terminal commands.",
+            "moleInstallerUpdateTitle": "Updates inside MoleCube",
+            "moleInstallerUpdateDetail": "After installation, view the installed version and update the stable build.",
+            "installMoleNow": "Install Mole",
+            "notNow": "Not Now",
             "cleanPreviewCommand": "Preview Cleanup",
             "cleanPreviewCommandDetail": "Scan cleanable items without deleting.",
             "cleanRunCommand": "Run Cleanup",
@@ -1713,6 +2403,15 @@ enum Localizer {
             "networkAndPower": "Network & Power",
             "storage": "Storage",
             "topProcesses": "Top Processes",
+            "action": "Action",
+            "stopProcess": "Stop Process",
+            "processStopConfirmTitle": "Stop this process?",
+            "processStopConfirmMessage": "MoleCube will send a stop request to %@ (PID %d). Unsaved work may be lost. System processes are protected or may be refused by macOS.",
+            "processStopCompleteTitle": "Process Stopped",
+            "processStopCompleteMessage": "Sent a stop request to %@ (PID %d), then refreshed system status.",
+            "processStopFailed": "Could not stop the process.",
+            "processStopDisabled": "Critical system processes and the current app cannot be stopped here.",
+            "processMissingPID": "This process has no PID, so it cannot be stopped.",
             "loadAverage": "Load Average",
             "cpuCores": "CPU Cores",
             "temperature": "Temperature",
@@ -1827,6 +2526,10 @@ enum Localizer {
             "analyzeDeleteConfirmationMessage": "This will move \"%@\" to Trash. Estimated size: %@.\n\nPath: %@\n\nMake sure this is not a system folder, work data, or a folder still in use. Items moved to Trash can usually be restored, but not after Trash is emptied.",
             "analyzeDeleteCompleteTitle": "Moved to Trash",
             "analyzeMovedToTrashInline": "\"%@\" was moved to Trash. Refreshing the disk map.",
+            "analyzeTrashRefreshComplete": "\"%@\" was moved to Trash and the disk map has been refreshed.",
+            "analyzeTrashRefreshFailed": "\"%@\" was moved to Trash, but the disk map could not refresh. Use the top refresh button and try again.",
+            "analyzeMapRefreshComplete": "The current folder was analyzed again and the disk map is up to date.",
+            "analyzeMapRefreshFailed": "The item was moved to Trash, but the current folder could not be analyzed again. Use the top refresh button and try again.",
             "appInventory": "App Inventory",
             "scanLeftovers": "Scan Leftovers",
             "installed": "Installed",
@@ -1843,6 +2546,9 @@ enum Localizer {
             "reviewOnlyFiles": "Review Only",
             "otherFiles": "Other Files",
             "readingRelatedFiles": "Reading leftover files",
+            "waitingToScanRelatedFiles": "Waiting to read leftover files",
+            "leftoverScanFailed": "Could not read leftover files",
+            "retryScanLeftovers": "Try Again",
             "files": "Files",
             "defaultDeleteMode": "Default deletion mode",
             "moveToTrashNote": "Uninstall moves items to Trash first. System apps, whitelist paths, credentials, and session data are skipped by default.",
@@ -1860,6 +2566,12 @@ enum Localizer {
             "whitelist": "Whitelist",
             "repository": "Repository",
             "language": "Language",
+            "appLanguage": "App language",
+            "languageSettingsDetail": "Changes apply to the MoleCube interface immediately.",
+            "openSourceNoticeTitle": "Open source license",
+            "openSourceNoticeDetail": "GPL-3.0 information for MoleCube and Mole",
+            "openSourceNoticeBody": "MoleCube includes and uses the open-source Mole CLI by tw93 and contributors. MoleCube is distributed under GPL-3.0. Its DMG provides the license, attribution, and access to the corresponding source.",
+            "openSourceNoticeSource": "View MoleCube corresponding source",
             "dryRunOutput": "Preview Result",
             "backendPreview": "From the local Mole CLI backend. Preview only, no deletion.",
             "previewOnlyTitle": "Safe preview",
@@ -1871,8 +2583,12 @@ enum Localizer {
             "operationNeedsReviewTitle": "Review Needed",
             "operationNeedsReviewSubtitle": "The operation finished, but some items need attention.",
             "operationNeedsReviewMessage": "Some files may have been skipped because of permissions, protection rules, or active use. Review the technical details below before handling them manually.",
+            "searchAppsPlaceholder": "Search apps, Bundle ID, or path",
+            "clearSearch": "Clear search",
             "technicalDetails": "Technical Details",
             "copyOutput": "Copy Output",
+            "copyCommand": "Copy Command",
+            "copiedCommand": "Command Copied",
             "lines": "lines",
             "cleanDryRunTitle": "Mole Cleanup Preview",
             "uninstallDryRunTitle": "Mole Uninstall Preview",
@@ -1899,6 +2615,7 @@ enum Localizer {
             "uninstallIncompleteTitle": "Uninstall Incomplete",
             "uninstallRemovedFromList": "The app bundle is no longer at its original path and was removed from the app list.",
             "uninstallStillPresent": "The uninstall command finished, but the app bundle is still at its original path. System permission, a running process, or an official uninstaller requirement may have blocked removal. Check the output above.",
+            "adminAccessDeniedFriendly": "Administrator permission is required to continue with this app. Confirm the system permission dialog, or quit the running app and try again. If you cancel authorization, MoleCube will not delete any files.",
             "commandTimedOutTitle": "This operation took too long and was stopped.",
             "commandTimedOutDetail": "Mole may be scanning many apps or disk paths, or waiting for system permission. Try again later, or run a preview first to confirm the scope.",
             "cancel": "Cancel"

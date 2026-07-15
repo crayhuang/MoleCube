@@ -1,0 +1,18 @@
+MoleCube Open Source Notice
+===========================
+
+MoleCube is a native macOS interface that includes and uses Mole, the open-source
+macOS maintenance CLI created by tw93 and contributors.
+
+Upstream Mole source: https://github.com/tw93/Mole
+MoleCube source: https://github.com/crayhuang/MoleCube
+
+MoleCube is distributed under the GNU General Public License, version 3.0
+(GPL-3.0). A copy of the license is provided in the file named LICENSE.
+
+When distributing a MoleCube DMG, also provide the corresponding source code for
+that exact release, including the MoleCube UI, bundled Mole sources, build scripts,
+and any changes made to upstream Mole. See docs/OPEN_SOURCE_DISTRIBUTION.md for the
+release checklist.
+
+Mole and MoleCube are provided without warranty, to the extent permitted by law.

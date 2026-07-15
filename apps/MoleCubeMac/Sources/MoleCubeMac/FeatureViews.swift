@@ -1015,6 +1015,7 @@ private struct AnalyzeTreemapTile: View {
                 .font(.caption.weight(.bold))
             Text(item.entry.name)
                 .font(.caption.weight(.bold))
+                .underline(isFolderHoverable && isHovered, color: .white)
                 .lineLimit(item.rect.width > 140 ? 2 : 1)
                 .multilineTextAlignment(.center)
             Text(item.entry.size.formattedBytes)
@@ -1105,6 +1106,7 @@ private struct AnalyzeRow: View {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.ink)
+                    .underline(isFolder && isHovered && !isDeleting, color: AppTheme.green)
                     .lineLimit(1)
                 Text(subtitle)
                     .font(.caption)
@@ -1210,6 +1212,39 @@ struct UninstallView: View {
             SectionCard(title: model.text("appInventory"), subtitle: model.isLoadingApps && model.apps.isEmpty ? nil : "\(model.filteredApps.count) / \(model.apps.count)") {
                 VStack(spacing: 8) {
                     HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppTheme.muted)
+                        TextField(model.text("searchAppsPlaceholder"), text: $model.uninstallSearchQuery)
+                            .textFieldStyle(.plain)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.ink)
+                            .lineLimit(1)
+                        if !model.uninstallSearchQuery.isEmpty {
+                            Button {
+                                model.uninstallSearchQuery = ""
+                                model.selectFirstFilteredAppIfNeeded()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(AppTheme.muted)
+                            }
+                            .buttonStyle(.plain)
+                            .help(model.text("clearSearch"))
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 34)
+                    .background(AppTheme.panelAlt.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(AppTheme.border.opacity(0.20), lineWidth: 1)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+
+                    HStack(spacing: 8) {
                         Picker("", selection: $model.uninstallFilter) {
                             Text(model.text("installed")).tag(UninstallFilter.installed)
                             Text(model.text("extensions")).tag(UninstallFilter.extensions)
@@ -1239,7 +1274,7 @@ struct UninstallView: View {
                         }
                         .disabled(model.isLoadingApps)
                     }
-                    .padding([.horizontal, .top], 12)
+                    .padding(.horizontal, 12)
 
                     Group {
                         if model.isLoadingApps && model.apps.isEmpty {
@@ -1302,6 +1337,9 @@ struct UninstallView: View {
             }
         }
         .onChange(of: model.uninstallFilter) { _, _ in
+            model.selectFirstFilteredAppIfNeeded()
+        }
+        .onChange(of: model.uninstallSearchQuery) { _, _ in
             model.selectFirstFilteredAppIfNeeded()
         }
     }
@@ -1417,7 +1455,7 @@ struct AppDetailView: View {
                                     rows: [preview?.appBundlePath ?? app.path],
                                     isSelected: $includeAppBundle
                                 )
-                                if model.isScanningLeftovers && preview == nil {
+                                if model.isScanningLeftovers(for: app) && preview == nil {
                                     HStack(spacing: 10) {
                                         ProgressView()
                                             .controlSize(.small)
@@ -1452,8 +1490,33 @@ struct AppDetailView: View {
                                         RoundedRectangle(cornerRadius: 8)
                                             .stroke(AppTheme.border.opacity(0.22), lineWidth: 1)
                                     }
+                                } else if let scanError = model.leftoverScanError(for: app) {
+                                    VStack(spacing: 8) {
+                                        Label(model.text("leftoverScanFailed"), systemImage: "exclamationmark.triangle")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(AppTheme.ink)
+                                        Text(scanError)
+                                            .font(.caption2)
+                                            .foregroundStyle(AppTheme.muted)
+                                            .multilineTextAlignment(.center)
+                                            .lineLimit(2)
+                                        Button {
+                                            Task { await model.scanSelectedAppLeftovers(app: app) }
+                                        } label: {
+                                            Label(model.text("retryScanLeftovers"), systemImage: "arrow.clockwise")
+                                        }
+                                        .buttonStyle(AppOutlineButtonStyle())
+                                    }
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, minHeight: 112)
+                                    .background(AppTheme.panel)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(AppTheme.border.opacity(0.22), lineWidth: 1)
+                                    }
                                 } else {
-                                    Text(model.text("readingRelatedFiles"))
+                                    Text(model.text("waitingToScanRelatedFiles"))
                                         .font(.caption)
                                         .foregroundStyle(AppTheme.muted)
                                         .frame(maxWidth: .infinity, minHeight: 72)
@@ -1487,7 +1550,7 @@ struct AppDetailView: View {
                             }
                         }
                         .buttonStyle(AppPrimaryButtonStyle())
-                        .disabled(model.isRunningCommand || model.isScanningLeftovers || !includeAppBundle || preview == nil)
+                        .disabled(model.isRunningCommand || model.isScanningLeftovers(for: app) || !includeAppBundle || preview == nil)
                     }
                     .padding(16)
                     .background(AppTheme.panel)
@@ -1715,24 +1778,7 @@ struct OptimizeView: View {
                     } else {
                         VStack(spacing: 0) {
                             ForEach(model.historyEntries.prefix(8)) { entry in
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(entry.command ?? entry.action ?? model.text("operation"))
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(AppTheme.ink)
-                                        Text(entry.path ?? "")
-                                            .font(.caption)
-                                            .foregroundStyle(AppTheme.muted)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer()
-                                    Text(entry.status ?? "")
-                                        .font(.caption)
-                                    Text(entry.timestamp ?? "")
-                                        .font(.caption)
-                                        .foregroundStyle(AppTheme.muted)
-                                }
-                                .padding(12)
+                                HistoryEntryRow(entry: entry, model: model)
                                 Divider()
                                     .overlay(AppTheme.border.opacity(0.14))
                             }
@@ -1841,8 +1887,6 @@ struct OptimizeView: View {
             MoleCommandAction(titleKey: "touchIDEnableCommand", detailKey: "touchIDEnableCommandDetail", command: "mo touchid enable", arguments: ["touchid", "enable"], systemImage: "touchid", timeoutSeconds: 90),
             MoleCommandAction(titleKey: "touchIDDisablePreviewCommand", detailKey: "touchIDDisablePreviewCommandDetail", command: "mo touchid disable --dry-run", arguments: ["touchid", "disable", "--dry-run"], systemImage: "touchid", timeoutSeconds: 30),
             MoleCommandAction(titleKey: "statusCommand", detailKey: "statusCommandDetail", command: "mo status", arguments: ["status"], systemImage: "waveform.path.ecg", timeoutSeconds: 30),
-            MoleCommandAction(titleKey: "updateForceCommand", detailKey: "updateForceCommandDetail", command: "mo update --force", arguments: ["update", "--force"], systemImage: "arrow.down.circle", timeoutSeconds: 300),
-            MoleCommandAction(titleKey: "updateNightlyCommand", detailKey: "updateNightlyCommandDetail", command: "mo update --nightly", arguments: ["update", "--nightly"], systemImage: "moon.stars", timeoutSeconds: 300),
             MoleCommandAction(titleKey: "versionCommand", detailKey: "versionCommandDetail", command: "mo --version", arguments: ["--version"], systemImage: "number", timeoutSeconds: 30),
             MoleCommandAction(titleKey: "helpCommand", detailKey: "helpCommandDetail", command: "mo --help", arguments: ["--help"], systemImage: "questionmark.circle", timeoutSeconds: 30),
             MoleCommandAction(titleKey: "removePreviewCommand", detailKey: "removePreviewCommandDetail", command: "mo remove --dry-run", arguments: ["remove", "--dry-run"], systemImage: "xmark.bin", timeoutSeconds: 60)
@@ -1869,6 +1913,127 @@ struct OptimizeView: View {
         case true: model.text("available")
         case false: model.text("requiresAuthorization")
         case nil: model.text("unknown")
+        }
+    }
+}
+
+struct MoleInstallPrompt: View {
+    @EnvironmentObject private var model: AppViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "terminal.badge.plus")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(AppTheme.ink)
+                    .frame(width: 44, height: 44)
+                    .background(AppTheme.green.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(AppTheme.border.opacity(0.35), lineWidth: 1)
+                    }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(model.text(model.installedMolePath == nil ? "moleInstallPromptTitle" : "moleCLIReadyTitle"))
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(AppTheme.ink)
+                    Text(model.installedMolePath == nil ? model.text("moleInstallPromptDetail") : installedDescription)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                if model.installedMolePath == nil {
+                    Button {
+                        Task { await model.installMoleIfNeeded() }
+                    } label: {
+                        if model.isInstallingMole {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(model.text("installingMole"))
+                        } else {
+                            Label(model.text("installMole"), systemImage: "arrow.down.circle.fill")
+                        }
+                    }
+                    .buttonStyle(AppPrimaryButtonStyle())
+                    .disabled(model.isInstallingMole)
+                } else {
+                    Button {
+                        Task { await model.updateInstalledMole(nightly: false) }
+                    } label: {
+                        if model.isUpdatingMole {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(model.text("updatingMole"))
+                        } else {
+                            Label(model.text("updateStableMole"), systemImage: "arrow.down.circle.fill")
+                        }
+                    }
+                    .buttonStyle(AppPrimaryButtonStyle())
+                    .disabled(model.isUpdatingMole)
+                }
+            }
+
+            if model.isInstallingMole || model.isUpdatingMole || !model.moleUpdateLog.isEmpty {
+                updateProgressPanel
+            }
+        }
+    }
+
+    private var installedDescription: String {
+        let version = model.installedMoleVersion ?? model.text("unknown")
+        let path = model.installedMolePath ?? ""
+        return "\(model.text("installedVersion")) \(version)  ·  \(path)"
+    }
+
+    private var updateProgressPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                if model.isInstallingMole || model.isUpdatingMole {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    let isFailed = model.moleUpdateStageKey == "moleUpdateFailed" || model.moleUpdateStageKey == "moleInstallFailed"
+                    Image(systemName: isFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(isFailed ? AppTheme.sun : AppTheme.green)
+                }
+                Text(model.text(model.moleUpdateStageKey))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.ink)
+                Spacer()
+                Text("\(Int((model.moleUpdateProgress * 100).rounded()))%")
+                    .font(.caption.monospacedDigit().weight(.bold))
+                    .foregroundStyle(AppTheme.muted)
+            }
+
+            ProgressView(value: min(max(model.moleUpdateProgress, 0), 1))
+                .tint(AppTheme.green)
+
+            ScrollView {
+                Text(model.moleUpdateLog.isEmpty ? model.text("moleUpdateWaitingLog") : model.moleUpdateLog)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(AppTheme.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(10)
+            }
+            .frame(maxHeight: 150)
+            .background(AppTheme.panel.opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppTheme.border.opacity(0.24), lineWidth: 1)
+            }
+        }
+        .padding(12)
+        .background(AppTheme.panel.opacity(0.82))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(AppTheme.border.opacity(0.24), lineWidth: 1)
         }
     }
 }
@@ -1927,55 +2092,92 @@ struct MoleCommandAction: Identifiable {
 }
 
 struct MoleCommandCard: View {
+    @EnvironmentObject private var model: AppViewModel
     let title: String
     let detail: String
     let command: String
     let systemImage: String
     let action: () -> Void
+    @State private var didCopy = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(AppTheme.ink)
-                    .frame(width: 34, height: 34)
-                    .background(AppTheme.green.opacity(0.18))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(AppTheme.border.opacity(0.4), lineWidth: 1.2)
+        ZStack(alignment: .topTrailing) {
+            Button(action: action) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(AppTheme.ink)
+                        .frame(width: 34, height: 34)
+                        .background(AppTheme.green.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(AppTheme.border.opacity(0.4), lineWidth: 1.2)
+                        }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.ink)
+                            .lineLimit(1)
+                            .padding(.trailing, 34)
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.muted)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(command)
+                            .font(.caption2.monospaced().weight(.semibold))
+                            .foregroundStyle(AppTheme.muted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.ink)
-                        .lineLimit(1)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.muted)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(command)
-                        .font(.caption2.monospaced().weight(.semibold))
-                        .foregroundStyle(AppTheme.muted)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    Spacer(minLength: 0)
                 }
-
-                Spacer(minLength: 0)
+                .padding(12)
+                .frame(maxWidth: .infinity, minHeight: 106, maxHeight: 106, alignment: .topLeading)
+                .background(AppTheme.panel)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(AppTheme.border.opacity(0.25), lineWidth: 1.2)
+                }
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 106, maxHeight: 106, alignment: .topLeading)
-            .background(AppTheme.panel)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(AppTheme.border.opacity(0.25), lineWidth: 1.2)
+            .buttonStyle(.plain)
+
+            Button {
+                copyCommand()
+            } label: {
+                Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(didCopy ? AppTheme.green : AppTheme.ink)
+                    .frame(width: 28, height: 28)
+                    .background(didCopy ? AppTheme.green.opacity(0.16) : AppTheme.panelAlt.opacity(0.92))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke((didCopy ? AppTheme.green : AppTheme.border).opacity(0.35), lineWidth: 1)
+                    }
+            }
+            .buttonStyle(.plain)
+            .help(didCopy ? model.text("copiedCommand") : model.text("copyCommand"))
+            .padding(9)
+        }
+    }
+
+    private func copyCommand() {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        #endif
+        didCopy = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            await MainActor.run {
+                didCopy = false
             }
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -1997,24 +2199,7 @@ struct HistoryView: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(model.historyEntries.prefix(30)) { entry in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(entry.command ?? entry.action ?? model.text("operation"))
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(AppTheme.ink)
-                                Text(entry.path ?? "")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.muted)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Text(entry.status ?? "")
-                                .font(.caption)
-                            Text(entry.timestamp ?? "")
-                                .font(.caption)
-                                .foregroundStyle(AppTheme.muted)
-                        }
-                        .padding(12)
+                        HistoryEntryRow(entry: entry, model: model)
                         Divider()
                             .overlay(AppTheme.border.opacity(0.14))
                     }
@@ -2029,39 +2214,337 @@ struct HistoryView: View {
     }
 }
 
+private struct HistoryEntryRow: View {
+    let entry: HistoryEntry
+    let model: AppViewModel
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: iconName)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(AppTheme.ink)
+                .frame(width: 30, height: 30)
+                .background(AppTheme.green.opacity(0.14))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.ink)
+                        .lineLimit(1)
+                    statusBadge
+                    Spacer(minLength: 0)
+                }
+
+                Text(subtitle)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AppTheme.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+
+            Text(formattedTime)
+                .font(.caption2.monospaced())
+                .foregroundStyle(AppTheme.muted)
+                .frame(width: 150, alignment: .trailing)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    private var title: String {
+        entry.command ?? entry.action ?? model.text("operation")
+    }
+
+    private var subtitle: String {
+        nonEmpty(entry.path) ?? nonEmpty(entry.size) ?? model.text("readOnlyPreview")
+    }
+
+    private var formattedTime: String {
+        entry.timestamp ?? entry.endedAt ?? entry.startedAt ?? "--"
+    }
+
+    private var iconName: String {
+        let normalized = title.lowercased()
+        if normalized.contains("uninstall") { return "app.badge" }
+        if normalized.contains("clean") { return "sparkles" }
+        if normalized.contains("purge") { return "folder.badge.minus" }
+        return "clock.arrow.circlepath"
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        if let status = nonEmpty(entry.status) {
+            Text(status)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(status.lowercased().contains("dry") ? AppTheme.sun : AppTheme.green)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background((status.lowercased().contains("dry") ? AppTheme.sun : AppTheme.green).opacity(0.13))
+                .clipShape(Capsule())
+        }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var model: AppViewModel
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            SectionCard(title: model.text("safetyExecution"), subtitle: model.text("settings")) {
-                VStack(spacing: 0) {
-                    Toggle(model.text("alwaysDryRun"), isOn: .constant(true))
+        VStack(alignment: .leading, spacing: 14) {
+            SectionCard(title: model.text("licenseAndTrial"), subtitle: model.text("licenseAndTrialSubtitle")) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .center, spacing: 12) {
+                        Image(systemName: model.hasProAccess ? "checkmark.seal.fill" : "lock.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(model.hasProAccess ? AppTheme.green : AppTheme.sun)
+                            .frame(width: 42, height: 42)
+                            .background((model.hasProAccess ? AppTheme.green : AppTheme.sun).opacity(0.16))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(model.licenseStatusTitle)
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(AppTheme.ink)
+                            Text(model.licenseStatusDetail)
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.muted)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        if case .pro = model.licenseStatus.kind {
+                            Button(model.text("licenseDeactivate"), role: .destructive) {
+                                Task { await model.deactivateLicense() }
+                            }
+                            .buttonStyle(AppOutlineButtonStyle())
+                            .disabled(model.isDeactivatingLicense)
+                        }
+                    }
+
+                    if !model.hasProAccess {
+                        HStack(spacing: 10) {
+                            TextField(model.text("licenseCodePlaceholder"), text: $model.licenseCodeInput)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.caption.monospaced())
+                                .onSubmit {
+                                    Task { await model.activateLicense() }
+                                }
+
+                            Button {
+                                Task { await model.activateLicense() }
+                            } label: {
+                                if model.isActivatingLicense {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text(model.text("activatingLicense"))
+                                } else {
+                                    Label(model.text("activateLicense"), systemImage: "checkmark.seal")
+                                }
+                            }
+                            .buttonStyle(AppPrimaryButtonStyle())
+                            .disabled(model.isActivatingLicense)
+                        }
+                    }
+
+                    if !model.hasProAccess || model.licenseCheckoutAvailable {
+                        HStack(spacing: 10) {
+                            Button {
+                                model.openLicenseCheckout()
+                            } label: {
+                                Label(model.text("licensePurchase"), systemImage: "cart")
+                            }
+                            .buttonStyle(AppOutlineButtonStyle())
+                            .disabled(!model.licenseCheckoutAvailable)
+
+                            if model.isDeactivatingLicense {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text(model.text("licenseDeactivating"))
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.muted)
+                            }
+                        }
+                    }
+
                     Divider()
                         .overlay(AppTheme.border.opacity(0.14))
-                    Toggle(model.text("moveToTrash"), isOn: .constant(true))
-                    Divider()
-                        .overlay(AppTheme.border.opacity(0.14))
-                    Toggle(model.text("allowAdmin"), isOn: .constant(false))
+
+                    HStack(spacing: 8) {
+                        Text(model.text("licenseDeviceID"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.muted)
+                        Text(model.licenseDeviceID)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(AppTheme.ink)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(model.licenseDeviceID, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 12, weight: .bold))
+                        }
+                        .buttonStyle(AppOutlineButtonStyle())
+                        .help(model.text("copy"))
+                    }
                 }
                 .padding(14)
             }
 
-            SectionCard(title: model.text("whitelist"), subtitle: model.text("repository")) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(model.repositoryPath)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(AppTheme.muted)
-                        .textSelection(.enabled)
-                    Picker(model.text("language"), selection: $model.language) {
-                        ForEach(AppLanguage.allCases) { language in
-                            Text(language.displayName).tag(language)
-                        }
+            SectionCard(title: model.text("moleCLIManagementTitle"), subtitle: model.text("moleCLIManagementSubtitle")) {
+                MoleInstallPrompt()
+                    .padding(14)
+            }
+
+            OptimizeView()
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+            HStack(alignment: .top, spacing: 14) {
+                SectionCard(title: model.text("safetyExecution"), subtitle: model.text("settings")) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SettingsOptionRow(
+                            title: model.text("alwaysDryRun"),
+                            detail: model.text("readOnlyPreview"),
+                            systemImage: "eye",
+                            isEnabled: true
+                        )
+                        SettingsOptionRow(
+                            title: model.text("moveToTrash"),
+                            detail: model.text("moveToTrashNote"),
+                            systemImage: "trash",
+                            isEnabled: true
+                        )
+                        SettingsOptionRow(
+                            title: model.text("allowAdmin"),
+                            detail: model.text("requiresAuthorization"),
+                            systemImage: "lock.shield",
+                            isEnabled: false
+                        )
                     }
-                    .pickerStyle(.segmented)
+                    .padding(14)
+                }
+
+                SectionCard(title: model.text("language"), subtitle: model.text("languageSettingsDetail")) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "character.bubble")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(AppTheme.ink)
+                            .frame(width: 38, height: 38)
+                            .background(AppTheme.sun.opacity(0.18))
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.text("appLanguage"))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.ink)
+                            Text(model.text("languageSettingsDetail"))
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.muted)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        Picker(model.text("language"), selection: $model.language) {
+                            ForEach(AppLanguage.allCases) { language in
+                                Text(language.displayName).tag(language)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 142)
+                    }
+                    .padding(14)
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+            SectionCard(title: model.text("whitelist"), subtitle: model.text("repository")) {
+                HStack(spacing: 10) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(AppTheme.ink)
+                        .frame(width: 34, height: 34)
+                        .background(AppTheme.green.opacity(0.14))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.text("repository"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.muted)
+                        Text(model.repositoryPath)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(AppTheme.ink)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                    Spacer(minLength: 0)
                 }
                 .padding(14)
             }
+
+            SectionCard(title: model.text("openSourceNoticeTitle"), subtitle: model.text("openSourceNoticeDetail")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.text("openSourceNoticeBody"))
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.muted)
+                    Link(model.text("openSourceNoticeSource"), destination: URL(string: "https://github.com/crayhuang/MoleCube")!)
+                        .font(.caption.weight(.semibold))
+                }
+                .padding(14)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct SettingsOptionRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let isEnabled: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(AppTheme.ink)
+                .frame(width: 34, height: 34)
+                .background((isEnabled ? AppTheme.green : AppTheme.muted).opacity(0.14))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.ink)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.muted)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Image(systemName: isEnabled ? "checkmark.circle.fill" : "minus.circle.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(isEnabled ? AppTheme.green : AppTheme.muted)
+        }
+        .padding(10)
+        .background(AppTheme.panelAlt.opacity(0.58))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(AppTheme.border.opacity(0.16), lineWidth: 1)
         }
     }
 }

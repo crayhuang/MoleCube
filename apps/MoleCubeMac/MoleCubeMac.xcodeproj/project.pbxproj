@@ -16,6 +16,8 @@
 		100000000000000000000107 /* FeatureViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000007 /* FeatureViews.swift */; };
 		100000000000000000000109 /* SystemStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000009 /* SystemStatusView.swift */; };
 		100000000000000000000108 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000008 /* Assets.xcassets */; };
+		100000000000000000000110 /* BundledMole in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000010 /* BundledMole */; };
+		100000000000000000000111 /* Licensing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000011 /* Licensing.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +30,8 @@
 		100000000000000000000007 /* FeatureViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureViews.swift; sourceTree = "<group>"; };
 		100000000000000000000009 /* SystemStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatusView.swift; sourceTree = "<group>"; };
 		100000000000000000000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		100000000000000000000010 /* BundledMole */ = {isa = PBXFileReference; lastKnownFileType = folder; path = BundledMole; sourceTree = "<group>"; };
+		100000000000000000000011 /* Licensing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Licensing.swift; sourceTree = "<group>"; };
 		100000000000000000000020 /* MoleCubeMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MoleCubeMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -37,6 +41,7 @@
 			children = (
 				100000000000000000000031 /* Sources */,
 				100000000000000000000008 /* Assets.xcassets */,
+				100000000000000000000010 /* BundledMole */,
 				100000000000000000000032 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -52,6 +57,7 @@
 				100000000000000000000006 /* DashboardView.swift */,
 				100000000000000000000007 /* FeatureViews.swift */,
 				100000000000000000000009 /* SystemStatusView.swift */,
+				100000000000000000000011 /* Licensing.swift */,
 			);
 			path = Sources/MoleCubeMac;
 			sourceTree = "<group>";
@@ -135,6 +141,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				100000000000000000000108 /* Assets.xcassets in Resources */,
+				100000000000000000000110 /* BundledMole in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -153,6 +160,7 @@
 				100000000000000000000106 /* DashboardView.swift in Sources */,
 				100000000000000000000107 /* FeatureViews.swift in Sources */,
 				100000000000000000000109 /* SystemStatusView.swift in Sources */,
+				100000000000000000000111 /* Licensing.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -281,6 +289,10 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MoleCube;
+				INFOPLIST_KEY_LemonSqueezyCheckoutURL = "";
+				INFOPLIST_KEY_LemonSqueezyProductID = 0;
+				INFOPLIST_KEY_LemonSqueezyStoreID = 0;
+				INFOPLIST_KEY_LemonSqueezyVariantID = 0;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -306,6 +318,10 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MoleCube;
+				INFOPLIST_KEY_LemonSqueezyCheckoutURL = "";
+				INFOPLIST_KEY_LemonSqueezyProductID = 0;
+				INFOPLIST_KEY_LemonSqueezyStoreID = 0;
+				INFOPLIST_KEY_LemonSqueezyVariantID = 0;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				LD_RUNPATH_SEARCH_PATHS = (

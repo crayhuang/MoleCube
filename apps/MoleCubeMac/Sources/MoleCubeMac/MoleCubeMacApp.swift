@@ -41,7 +41,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 1120, minHeight: 720)
         .alert("MoleCube", isPresented: Binding(
-            get: { model.errorMessage != nil },
+            get: { model.errorMessage != nil && !model.isMoleInstallerPresented },
             set: { if !$0 { model.errorMessage = nil } }
         )) {
             Button("OK") { model.errorMessage = nil }
@@ -94,25 +94,52 @@ struct ContentView: View {
             )
             .environmentObject(model)
         }
+        .sheet(isPresented: $model.isMoleInstallerPresented, onDismiss: {
+            if model.errorMessage == model.text("moleNotInstalled") {
+                model.errorMessage = nil
+            }
+        }) {
+            MoleInstallerSheet()
+                .environmentObject(model)
+        }
     }
 
     @ViewBuilder
     private var contentArea: some View {
         if model.selectedSection == .uninstall {
-            sectionView
+            VStack(alignment: .leading, spacing: 12) {
+                moleDependencyCard
+                sectionView
+            }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
             ScrollView {
-                sectionView
+                VStack(alignment: .leading, spacing: 12) {
+                    moleDependencyCard
+                    sectionView
+                }
                     .padding(.horizontal, 24)
                     .padding(.top, 8)
                     .padding(.bottom, 24)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    @ViewBuilder
+    private var moleDependencyCard: some View {
+        if model.installedMolePath == nil && model.selectedSection != .status && model.selectedSection != .settings {
+            SectionCard(
+                title: model.text(model.installedMolePath == nil ? "moleInstallRequiredTitle" : "moleCLIManagementTitle"),
+                subtitle: model.text(model.installedMolePath == nil ? "moleInstallRequiredSubtitle" : "moleCLIManagementSubtitle")
+            ) {
+                MoleInstallPrompt()
+                    .padding(14)
+            }
         }
     }
 
@@ -130,6 +157,126 @@ struct ContentView: View {
             AnalyzeView()
         case .status:
             SystemStatusView()
+        case .settings:
+            SettingsView()
+        }
+    }
+}
+
+private struct MoleInstallerSheet: View {
+    @EnvironmentObject private var model: AppViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                LinearGradient(
+                    colors: [AppTheme.sun.opacity(0.42), AppTheme.mint.opacity(0.34)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                VStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(AppTheme.green)
+                            .frame(width: 76, height: 76)
+                            .shadow(color: AppTheme.green.opacity(0.28), radius: 18, y: 8)
+                        Image(systemName: "terminal.fill")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+
+                    Text(model.text("moleInstallerSheetTitle"))
+                        .font(.system(size: 25, weight: .bold, design: .rounded))
+                        .foregroundStyle(AppTheme.ink)
+
+                    Text(model.text("moleInstallerSheetSubtitle"))
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.muted)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 430)
+                }
+                .padding(.vertical, 30)
+            }
+
+            VStack(alignment: .leading, spacing: 18) {
+                installerBenefit(
+                    icon: "hand.raised.fill",
+                    title: model.text("moleInstallerSafetyTitle"),
+                    detail: model.text("moleInstallerSafetyDetail")
+                )
+                installerBenefit(
+                    icon: "folder.badge.plus",
+                    title: model.text("moleInstallerLocationTitle"),
+                    detail: model.text("moleInstallerLocationDetail")
+                )
+                installerBenefit(
+                    icon: "arrow.triangle.2.circlepath",
+                    title: model.text("moleInstallerUpdateTitle"),
+                    detail: model.text("moleInstallerUpdateDetail")
+                )
+
+                if let errorMessage = model.errorMessage,
+                   errorMessage != model.text("moleNotInstalled") {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                HStack(spacing: 10) {
+                    Button(model.text("notNow")) {
+                        model.isMoleInstallerPresented = false
+                    }
+                    .buttonStyle(AppOutlineButtonStyle())
+                    .disabled(model.isInstallingMole)
+
+                    Button {
+                        model.errorMessage = nil
+                        Task { await model.installMoleIfNeeded() }
+                    } label: {
+                        if model.isInstallingMole {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(model.text("installingMole"))
+                        } else {
+                            Label(model.text("installMoleNow"), systemImage: "arrow.down.circle.fill")
+                        }
+                    }
+                    .buttonStyle(AppPrimaryButtonStyle())
+                    .disabled(model.isInstallingMole)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 4)
+            }
+            .padding(24)
+            .background(AppTheme.panel)
+        }
+        .frame(width: 560)
+        .fixedSize(horizontal: true, vertical: true)
+    }
+
+    private func installerBenefit(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(AppTheme.green)
+                .frame(width: 34, height: 34)
+                .background(AppTheme.green.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.ink)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
@@ -210,31 +357,42 @@ struct SidebarView: View {
 
                 Spacer()
 
-                HStack(spacing: 12) {
-                    Image(systemName: "checkmark.shield.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(AppTheme.green)
-                        .frame(width: 36, height: 36)
-                        .background(.white.opacity(0.12))
-                        .clipShape(Circle())
+                let settingsSelected = model.selectedSection == .settings
+                Button {
+                    model.selectedSection = .settings
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(settingsSelected ? AppTheme.forest : AppTheme.green)
+                            .frame(width: 36, height: 36)
+                            .background(settingsSelected ? AppTheme.sun : .white.opacity(0.12))
+                            .clipShape(Circle())
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.text("safeMode"))
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.86))
-                        Text(model.text("localOnly"))
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.52))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.text("settings"))
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white.opacity(0.90))
+                            Text(model.text("settingsShortcutDetail"))
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.60))
+                                .lineLimit(1)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(11)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(settingsSelected ? .white.opacity(0.16) : .white.opacity(0.075))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(settingsSelected ? .white.opacity(0.25) : .white.opacity(0.08), lineWidth: 1)
                     }
                 }
-                .padding(11)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.075))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(.white.opacity(0.08), lineWidth: 1)
-                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .accessibilityLabel(model.text("settings"))
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 18)
@@ -340,6 +498,7 @@ struct SidebarView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(RoundedRectangle(cornerRadius: 16))
         .buttonStyle(.plain)
+        .focusEffectDisabled()
     }
 
     @ViewBuilder
@@ -351,7 +510,7 @@ struct SidebarView: View {
             SidebarCountBadge(value: model.isLoadingApps ? nil : "\(model.apps.count)", selected: selected)
         case .status:
             SidebarCountBadge(value: model.status?.healthScore.map(String.init), selected: selected)
-        case .optimize, .analyze:
+        case .optimize, .analyze, .settings:
             EmptyView()
         }
     }
@@ -363,6 +522,7 @@ struct SidebarView: View {
         case .optimize: "terminal"
         case .analyze: "internaldrive"
         case .status: "gauge.with.dots.needle.67percent"
+        case .settings: "gearshape"
         }
     }
 
@@ -373,6 +533,7 @@ struct SidebarView: View {
         case .optimize: model.text("commandCenter")
         case .analyze: model.text("analyze")
         case .status: model.text("status")
+        case .settings: model.text("settings")
         }
     }
 }
@@ -440,23 +601,6 @@ struct ToolbarView: View {
 
             Spacer()
 
-            Picker(model.text("language"), selection: $model.language) {
-                ForEach(AppLanguage.allCases) { language in
-                    Text(language.displayName).tag(language)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(width: 145)
-            .tint(AppTheme.forest)
-            .padding(.horizontal, 4)
-            .frame(height: 36)
-            .background(AppTheme.panel.opacity(0.78))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(AppTheme.forest.opacity(0.12), lineWidth: 1)
-            }
-
             Button {
                 Task { await model.refreshStatus() }
             } label: {
@@ -493,6 +637,7 @@ struct ToolbarView: View {
         case .optimize: "terminal"
         case .analyze: "internaldrive"
         case .status: "gauge.with.dots.needle.67percent"
+        case .settings: "gearshape"
         }
     }
 
@@ -503,6 +648,7 @@ struct ToolbarView: View {
         case .optimize: model.text("commandCenter")
         case .analyze: model.text("analyze")
         case .status: model.text("status")
+        case .settings: model.text("settings")
         }
     }
 }

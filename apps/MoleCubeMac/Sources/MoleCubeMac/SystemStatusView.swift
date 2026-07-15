@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SystemStatusView: View {
     @EnvironmentObject private var model: AppViewModel
+    @State private var pendingStopProcess: StatusSnapshot.ProcessInfo?
 
     var body: some View {
         ScrollView {
@@ -99,13 +100,34 @@ struct SystemStatusView: View {
                 }
 
                 StatusPanel(title: model.text("topProcesses"), subtitle: "\(model.status?.topProcesses?.count ?? 0)") {
-                    ProcessTable(processes: Array((model.status?.topProcesses ?? []).prefix(10)), model: model)
+                    ProcessTable(processes: Array((model.status?.topProcesses ?? []).prefix(10)), model: model) { process in
+                        pendingStopProcess = process
+                    }
                 }
             }
             .padding(.bottom, 24)
         }
         .task {
             await model.startLiveStatusUpdates()
+        }
+        .alert(model.text("processStopConfirmTitle"), isPresented: Binding(
+            get: { pendingStopProcess != nil },
+            set: { if !$0 { pendingStopProcess = nil } }
+        )) {
+            Button(model.text("cancel"), role: .cancel) {
+                pendingStopProcess = nil
+            }
+            Button(model.text("stopProcess"), role: .destructive) {
+                if let process = pendingStopProcess {
+                    Task { await model.terminateProcess(process) }
+                }
+            }
+        } message: {
+            Text(String(
+                format: model.text("processStopConfirmMessage"),
+                pendingStopProcess?.name ?? pendingStopProcess?.command ?? "\(pendingStopProcess?.pid ?? 0)",
+                pendingStopProcess?.pid ?? 0
+            ))
         }
     }
 
@@ -498,6 +520,7 @@ private struct BatteryDetailView: View {
 private struct ProcessTable: View {
     let processes: [StatusSnapshot.ProcessInfo]
     let model: AppViewModel
+    let onStop: (StatusSnapshot.ProcessInfo) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -510,6 +533,8 @@ private struct ProcessTable: View {
                     .frame(width: 90, alignment: .trailing)
                 Text("MEM")
                     .frame(width: 110, alignment: .trailing)
+                Text(model.text("action"))
+                    .frame(width: 86, alignment: .trailing)
             }
             .font(.caption2.monospaced().weight(.bold))
             .foregroundStyle(AppTheme.muted)
@@ -519,7 +544,9 @@ private struct ProcessTable: View {
                 EmptyStatusLine(text: model.text("notScanned"))
             } else {
                 ForEach(processes) { process in
-                    ProcessTableRow(process: process)
+                    ProcessTableRow(process: process, model: model) {
+                        onStop(process)
+                    }
                     if process.id != processes.last?.id {
                         Divider().overlay(AppTheme.border.opacity(0.12))
                     }
@@ -531,6 +558,8 @@ private struct ProcessTable: View {
 
 private struct ProcessTableRow: View {
     let process: StatusSnapshot.ProcessInfo
+    let model: AppViewModel
+    let onStop: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -560,8 +589,42 @@ private struct ProcessTableRow: View {
                 .font(.caption)
                 .foregroundStyle(AppTheme.muted)
                 .frame(width: 110, alignment: .trailing)
+
+            Button {
+                onStop()
+            } label: {
+                Label(model.text("stopProcess"), systemImage: "stop.circle")
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 15, weight: .bold))
+                    .frame(width: 30, height: 26)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(canStop ? AppTheme.ink : AppTheme.muted.opacity(0.55))
+            .background(canStop ? AppTheme.sun.opacity(0.12) : AppTheme.panelAlt.opacity(0.55))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke((canStop ? AppTheme.sun : AppTheme.border).opacity(0.28), lineWidth: 1)
+            }
+            .help(canStop ? model.text("stopProcess") : model.text("processStopDisabled"))
+            .disabled(!canStop || model.isRunningCommand)
+            .frame(width: 86, alignment: .trailing)
         }
         .padding(.vertical, 8)
+    }
+
+    private var canStop: Bool {
+        guard let pid = process.pid, pid > 1 else { return false }
+        if pid == Int(ProcessInfo.processInfo.processIdentifier) { return false }
+        let command = (process.command ?? "").lowercased()
+        let name = (process.name ?? "").lowercased()
+        if command.hasPrefix("/system/") || command.hasPrefix("/usr/libexec/") {
+            return false
+        }
+        if name == "kernel_task" || name == "launchd" || name == "windowserver" {
+            return false
+        }
+        return true
     }
 }
 

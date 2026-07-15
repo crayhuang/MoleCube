@@ -29,6 +29,25 @@ struct CLIResult: Sendable {
     let exitCode: Int32
 }
 
+struct MoleUpdateEvent: Sendable {
+    let chunk: String
+}
+
+struct AnalyzeTrashResult: Sendable {
+    let sourcePath: String
+    let trashPath: String?
+
+    var output: String {
+        [
+            "Moved to Trash: 1",
+            "  moved: \(sourcePath)",
+            trashPath.map { "  trash: \($0)" }
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
+    }
+}
+
 private final class ProcessBox: @unchecked Sendable {
     let process: Process
 
@@ -85,6 +104,77 @@ private final class ProcessRunState: @unchecked Sendable {
             try? FileManager.default.removeItem(at: stdoutURL)
             try? FileManager.default.removeItem(at: stderrURL)
         }
+
+        switch result {
+        case let .success(value):
+            continuation.resume(returning: value)
+        case let .failure(error):
+            continuation.resume(throwing: error)
+        }
+    }
+}
+
+private final class StreamingProcessRunState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didFinish = false
+    private var stdoutData = Data()
+    private var stderrData = Data()
+    private let continuation: CheckedContinuation<CLIResult, Error>
+    private let stdin: Pipe
+    private let stdout: Pipe
+    private let stderr: Pipe
+    private let onEvent: (@Sendable (MoleUpdateEvent) -> Void)?
+
+    init(
+        continuation: CheckedContinuation<CLIResult, Error>,
+        stdin: Pipe,
+        stdout: Pipe,
+        stderr: Pipe,
+        onEvent: (@Sendable (MoleUpdateEvent) -> Void)?
+    ) {
+        self.continuation = continuation
+        self.stdin = stdin
+        self.stdout = stdout
+        self.stderr = stderr
+        self.onEvent = onEvent
+    }
+
+    func append(_ data: Data, isError: Bool) {
+        guard !data.isEmpty else { return }
+
+        lock.lock()
+        if isError {
+            stderrData.append(data)
+        } else {
+            stdoutData.append(data)
+        }
+        lock.unlock()
+
+        if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
+            onEvent?(MoleUpdateEvent(chunk: chunk))
+        }
+    }
+
+    func readResult(exitCode: Int32) -> CLIResult {
+        lock.lock()
+        let stdoutString = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderrString = String(data: stderrData, encoding: .utf8) ?? ""
+        lock.unlock()
+        return CLIResult(stdout: stdoutString, stderr: stderrString, exitCode: exitCode)
+    }
+
+    func finish(_ result: Result<CLIResult, Error>) {
+        lock.lock()
+        guard !didFinish else {
+            lock.unlock()
+            return
+        }
+        didFinish = true
+        lock.unlock()
+
+        stdout.fileHandleForReading.readabilityHandler = nil
+        stderr.fileHandleForReading.readabilityHandler = nil
+        try? stdin.fileHandleForWriting.close()
 
         switch result {
         case let .success(value):
@@ -358,7 +448,7 @@ actor LocalCLIBackend {
         return lines.joined(separator: "\n")
     }
 
-    func moveAnalyzeItemToTrash(path: String) async throws -> String {
+    func moveAnalyzeItemToTrash(path: String) async throws -> AnalyzeTrashResult {
         let url = URL(fileURLWithPath: path).standardizedFileURL
         let standardizedPath = url.path
 
@@ -369,29 +459,341 @@ actor LocalCLIBackend {
             throw CLIError.commandFailed("Mole refused to move this protected path to Trash: \(standardizedPath)")
         }
 
-        let resultingPath: String? = try await withCheckedThrowingContinuation { continuation in
-            NSWorkspace.shared.recycle([url]) { recycledURLs, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: recycledURLs[url]?.path)
-                }
-            }
-        }
+        var resultingURL: NSURL?
+        try fileManager.trashItem(at: url, resultingItemURL: &resultingURL)
 
-        return [
-            "Moved to Trash: 1",
-            "  moved: \(standardizedPath)",
-            resultingPath.map { "  trash: \($0)" }
-        ]
-        .compactMap { $0 }
-        .joined(separator: "\n")
+        guard !fileManager.fileExists(atPath: standardizedPath) else {
+            throw CLIError.commandFailed("The item is still at its original path: \(standardizedPath)")
+        }
+        return AnalyzeTrashResult(sourcePath: standardizedPath, trashPath: resultingURL?.path)
     }
 
     func permissionStatus() async -> PermissionStatus {
         async let fullDisk = fullDiskAccessGranted()
         async let sudo = sudoSessionAvailable()
         return await PermissionStatus(fullDiskAccessGranted: fullDisk, sudoSessionAvailable: sudo)
+    }
+
+    func installedMolePath() -> String? {
+        findExecutable(named: "mo")?.path
+    }
+
+    func installedMoleVersion() async -> String? {
+        guard let executable = findExecutable(named: "mo") else { return nil }
+        do {
+            let result = try await runExecutable(
+                executable,
+                arguments: ["--version"],
+                timeoutSeconds: 15,
+                disablesOperationLog: true
+            )
+            let versionLine = result.stdout
+                .split(separator: "\n")
+                .first { $0.localizedCaseInsensitiveContains("Mole version") }
+            return versionLine?
+                .split(whereSeparator: \.isWhitespace)
+                .last
+                .map(String.init)
+        } catch {
+            return nil
+        }
+    }
+
+    func installMoleForCurrentUser(
+        onEvent: (@Sendable (MoleUpdateEvent) -> Void)? = nil
+    ) async throws -> String {
+        if let output = try installBundledMoleForCurrentUser(onEvent: onEvent) {
+            return output
+        }
+
+        onEvent?(MoleUpdateEvent(chunk: "Bundled Mole resources were not found. Falling back to source installer.\n"))
+        let installScript = repositoryRoot.appending(path: "install.sh")
+        guard fileManager.fileExists(atPath: installScript.path) else {
+            throw CLIError.commandFailed("Mole installer was not found in the repository.")
+        }
+
+        let home = fileManager.homeDirectoryForCurrentUser
+        let installDir = home.appending(path: ".local/bin")
+        let configDir = home.appending(path: ".config/mole")
+        try fileManager.createDirectory(at: installDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: configDir, withIntermediateDirectories: true)
+
+        let result = try await runStreaming(
+            "/bin/bash",
+            arguments: [
+                installScript.path,
+                "--prefix",
+                installDir.path,
+                "--config",
+                configDir.path
+            ],
+            timeoutSeconds: 300,
+            disablesOperationLog: true,
+            disablesAuthentication: true,
+            onEvent: onEvent
+        )
+        return [result.stdout, result.stderr]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
+    }
+
+    private func installBundledMoleForCurrentUser(
+        onEvent: (@Sendable (MoleUpdateEvent) -> Void)?
+    ) throws -> String? {
+        guard let source = Bundle.main.url(forResource: "BundledMole", withExtension: nil),
+              fileManager.fileExists(atPath: source.appending(path: "mole").path),
+              fileManager.fileExists(atPath: source.appending(path: "bin").path),
+              fileManager.fileExists(atPath: source.appending(path: "lib").path) else {
+            return nil
+        }
+
+        let home = fileManager.homeDirectoryForCurrentUser
+        let installDir = home.appending(path: ".local/bin", directoryHint: .isDirectory)
+        let configDir = home.appending(path: ".config/mole", directoryHint: .isDirectory)
+        let configBinDir = configDir.appending(path: "bin", directoryHint: .isDirectory)
+        let configLibDir = configDir.appending(path: "lib", directoryHint: .isDirectory)
+
+        var logs: [String] = []
+        func log(_ line: String) {
+            logs.append(line)
+            onEvent?(MoleUpdateEvent(chunk: "\(line)\n"))
+        }
+
+        log("Using bundled Mole resources for offline install")
+        try fileManager.createDirectory(at: installDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: configDir, withIntermediateDirectories: true)
+        log("Prepared install directories")
+
+        let moleText = try String(contentsOf: source.appending(path: "mole"), encoding: .utf8)
+        let configuredMole = moleText.replacingOccurrences(
+            of: #"SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)""#,
+            with: #"SCRIPT_DIR="\#(configDir.path)""#
+        )
+        try writeExecutableText(configuredMole, to: installDir.appending(path: "mole"))
+        log("Installed mole to \(installDir.path)")
+
+        if fileManager.fileExists(atPath: source.appending(path: "mo").path) {
+            try copyExecutableFile(from: source.appending(path: "mo"), to: installDir.appending(path: "mo"))
+            log("Installed mo alias")
+        }
+
+        try replaceDirectory(at: configBinDir, with: source.appending(path: "bin"))
+        try setExecutableBits(in: configBinDir)
+        log("Installed modules")
+
+        try replaceDirectory(at: configLibDir, with: source.appending(path: "lib"))
+        log("Installed libraries")
+
+        for fileName in ["install.sh", "README.md", "LICENSE"] {
+            let sourceFile = source.appending(path: fileName)
+            guard fileManager.fileExists(atPath: sourceFile.path) else { continue }
+            let targetFile = configDir.appending(path: fileName)
+            if fileManager.fileExists(atPath: targetFile.path) {
+                try fileManager.removeItem(at: targetFile)
+            }
+            try fileManager.copyItem(at: sourceFile, to: targetFile)
+            if fileName.hasSuffix(".sh") {
+                try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: targetFile.path)
+            }
+        }
+
+        log("Mole installed successfully from bundled resources")
+        return logs.joined(separator: "\n")
+    }
+
+    private func writeExecutableText(_ text: String, to target: URL) throws {
+        let temporaryTarget = target.deletingLastPathComponent()
+            .appending(path: ".\(target.lastPathComponent).\(UUID().uuidString).new")
+        if fileManager.fileExists(atPath: temporaryTarget.path) {
+            try fileManager.removeItem(at: temporaryTarget)
+        }
+        try text.write(to: temporaryTarget, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporaryTarget.path)
+        if fileManager.fileExists(atPath: target.path) {
+            try fileManager.removeItem(at: target)
+        }
+        try fileManager.moveItem(at: temporaryTarget, to: target)
+    }
+
+    private func copyExecutableFile(from source: URL, to target: URL) throws {
+        let temporaryTarget = target.deletingLastPathComponent()
+            .appending(path: ".\(target.lastPathComponent).\(UUID().uuidString).new")
+        if fileManager.fileExists(atPath: temporaryTarget.path) {
+            try fileManager.removeItem(at: temporaryTarget)
+        }
+        try fileManager.copyItem(at: source, to: temporaryTarget)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporaryTarget.path)
+        if fileManager.fileExists(atPath: target.path) {
+            try fileManager.removeItem(at: target)
+        }
+        try fileManager.moveItem(at: temporaryTarget, to: target)
+    }
+
+    private func replaceDirectory(at target: URL, with source: URL) throws {
+        let temporaryTarget = target.deletingLastPathComponent()
+            .appending(path: ".\(target.lastPathComponent).\(UUID().uuidString).new", directoryHint: .isDirectory)
+        if fileManager.fileExists(atPath: temporaryTarget.path) {
+            try fileManager.removeItem(at: temporaryTarget)
+        }
+        try fileManager.copyItem(at: source, to: temporaryTarget)
+        if fileManager.fileExists(atPath: target.path) {
+            try fileManager.removeItem(at: target)
+        }
+        try fileManager.moveItem(at: temporaryTarget, to: target)
+    }
+
+    private func setExecutableBits(in directory: URL) throws {
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for case let fileURL as URL in enumerator {
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            if values.isRegularFile == true {
+                try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fileURL.path)
+            }
+        }
+    }
+
+    func updateInstalledMole(
+        nightly: Bool,
+        onEvent: (@Sendable (MoleUpdateEvent) -> Void)? = nil
+    ) async throws -> String {
+        guard let executable = findExecutable(named: "mo") else {
+            throw CLIError.commandFailed("Mole is not installed.")
+        }
+        let arguments = nightly ? ["update", "--nightly"] : ["update", "--force"]
+        let result: CLIResult
+        do {
+            result = try await runExecutableStreaming(
+                executable,
+                arguments: arguments,
+                timeoutSeconds: 300,
+                disablesOperationLog: true,
+                disablesAuthentication: false,
+                onEvent: onEvent
+            )
+        } catch let CLIError.commandFailed(message) {
+            if shouldRepairMoleHelpersAfterUpdateFailure(message) {
+                let fallbackOutput = try await repairInstalledMoleHelpers(failureMessage: message, onEvent: onEvent)
+                return [
+                    "The main Mole update stopped while preparing helper binaries. MoleCube repaired the helper binaries locally and kept the installed Mole command available.",
+                    fallbackOutput
+                ]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: "\n\n")
+            }
+            throw CLIError.commandFailed(friendlyMoleUpdateError(from: message))
+        }
+        return [result.stdout, result.stderr]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
+    }
+
+    private func repairInstalledMoleHelpers(
+        failureMessage: String,
+        onEvent: (@Sendable (MoleUpdateEvent) -> Void)?
+    ) async throws -> String {
+        let home = fileManager.homeDirectoryForCurrentUser
+        let configDir = home.appending(path: ".config/mole")
+        let configBinDir = configDir.appending(path: "bin", directoryHint: .isDirectory)
+        let temporaryDirectory = fileManager.temporaryDirectory
+            .appending(path: "molecube-helper-repair-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: configBinDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: temporaryDirectory)
+        }
+
+        let normalizedFailure = failureMessage.lowercased()
+        let allHelpers = [
+            (binaryName: "analyze", commandPath: "cmd/analyze"),
+            (binaryName: "status", commandPath: "cmd/status")
+        ]
+        let helpers = allHelpers.filter { helper in
+            normalizedFailure.contains(helper.binaryName) ||
+                (!normalizedFailure.contains("analyze") && !normalizedFailure.contains("status"))
+        }
+
+        var logs: [String] = []
+        for helper in helpers {
+            let target = configBinDir.appending(path: "\(helper.binaryName)-go")
+            let bundled = repositoryRoot.appending(path: "bin/\(helper.binaryName)-go")
+            if fileManager.isExecutableFile(atPath: bundled.path) {
+                onEvent?(MoleUpdateEvent(chunk: "Using bundled \(helper.binaryName) helper\n"))
+                try replaceFile(at: target, with: bundled)
+                logs.append("Installed bundled \(helper.binaryName)-go")
+                continue
+            }
+
+            guard let go = findExecutable(named: "go") else {
+                if fileManager.isExecutableFile(atPath: target.path) {
+                    onEvent?(MoleUpdateEvent(chunk: "Keeping existing \(helper.binaryName) helper because local rebuild requires Go\n"))
+                    logs.append("Kept existing \(helper.binaryName)-go")
+                    continue
+                }
+                throw CLIError.commandFailed(
+                    """
+                    Mole update could not download verified helper binaries, and Go is not installed to rebuild them locally.
+
+                    Your current Mole command was kept available. Install Go or try the update again after network access to GitHub is stable.
+                    """
+                )
+            }
+
+            onEvent?(MoleUpdateEvent(chunk: "Repairing \(helper.binaryName) helper locally\n"))
+            let temporaryBinary = temporaryDirectory.appending(path: "\(helper.binaryName)-go")
+            _ = try await runExecutableStreaming(
+                go,
+                arguments: ["build", "-ldflags=-s -w", "-o", temporaryBinary.path, "./\(helper.commandPath)"],
+                timeoutSeconds: 180,
+                disablesOperationLog: true,
+                disablesAuthentication: true,
+                onEvent: onEvent
+            )
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporaryBinary.path)
+            try replaceFile(at: target, with: temporaryBinary)
+            logs.append("Built and installed \(helper.binaryName)-go")
+        }
+
+        return logs.joined(separator: "\n")
+    }
+
+    private func replaceFile(at target: URL, with source: URL) throws {
+        let temporaryTarget = target.deletingLastPathComponent()
+            .appending(path: ".\(target.lastPathComponent).\(UUID().uuidString).new")
+        if fileManager.fileExists(atPath: temporaryTarget.path) {
+            try fileManager.removeItem(at: temporaryTarget)
+        }
+        try fileManager.copyItem(at: source, to: temporaryTarget)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: temporaryTarget.path)
+        if fileManager.fileExists(atPath: target.path) {
+            try fileManager.removeItem(at: target)
+        }
+        try fileManager.moveItem(at: temporaryTarget, to: target)
+    }
+
+    private func shouldRepairMoleHelpersAfterUpdateFailure(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized.contains("checksum verification failed") ||
+            normalized.contains("failed to install verified") ||
+            normalized.contains("failed to install analyze binary") ||
+            normalized.contains("failed to install status binary")
+    }
+
+    private func friendlyMoleUpdateError(from message: String) -> String {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.lowercased()
+        if normalized.contains("could not resolve host") || normalized.contains("failed to connect") ||
+            normalized.contains("connection timed out") || normalized.contains("check network") {
+            return "Mole update failed because the network request did not complete. Check your network or proxy, then try again.\n\n\(trimmed)"
+        }
+        if normalized.contains("checksum verification failed") || normalized.contains("attestation verification failed") {
+            return "Mole update failed because the downloaded helper binary could not be verified. Your current installation was kept unchanged.\n\n\(trimmed)"
+        }
+        return trimmed
     }
 
     func optimizePreview() async throws -> String {
@@ -439,7 +841,7 @@ actor LocalCLIBackend {
     func uninstallDryRunPreview(appName: String, autoConfirm: Bool = false) async throws -> String {
         let result = try await runMole(
             arguments: ["uninstall", "--dry-run", appName],
-            timeoutSeconds: 180,
+            timeoutSeconds: 45,
             standardInput: autoConfirm ? "y\n" : nil,
             disablesOperationLog: true
         )
@@ -464,6 +866,16 @@ actor LocalCLIBackend {
         return output
     }
 
+    func terminateProcess(pid: Int) async throws {
+        guard pid > 1 else {
+            throw CLIError.commandFailed("Invalid process id.")
+        }
+        guard pid != Int(ProcessInfo.processInfo.processIdentifier) else {
+            throw CLIError.commandFailed("MoleCube cannot stop itself.")
+        }
+        _ = try await run("/bin/kill", arguments: ["-TERM", "\(pid)"], timeoutSeconds: 5)
+    }
+
     private func runMole(
         arguments: [String],
         timeoutSeconds: TimeInterval = 90,
@@ -471,8 +883,11 @@ actor LocalCLIBackend {
         disablesOperationLog: Bool = false,
         disablesAuthentication: Bool = true
     ) async throws -> CLIResult {
-        try await runExecutable(
-            repositoryRoot.appending(path: "mole"),
+        guard let executable = findExecutable(named: "mo") else {
+            throw CLIError.commandFailed("Mole is not installed. Install the Mole CLI before using this feature.")
+        }
+        return try await runExecutable(
+            executable,
             arguments: arguments,
             timeoutSeconds: timeoutSeconds,
             standardInput: standardInput,
@@ -487,7 +902,8 @@ actor LocalCLIBackend {
         timeoutSeconds: TimeInterval = 90,
         standardInput: String? = nil,
         disablesOperationLog: Bool = false,
-        disablesAuthentication: Bool = true
+        disablesAuthentication: Bool = true,
+        extraEnvironment: [String: String] = [:]
     ) async throws -> CLIResult {
         try await run(
             executable.path,
@@ -495,7 +911,30 @@ actor LocalCLIBackend {
             timeoutSeconds: timeoutSeconds,
             standardInput: standardInput,
             disablesOperationLog: disablesOperationLog,
-            disablesAuthentication: disablesAuthentication
+            disablesAuthentication: disablesAuthentication,
+            extraEnvironment: extraEnvironment
+        )
+    }
+
+    private func runExecutableStreaming(
+        _ executable: URL,
+        arguments: [String],
+        timeoutSeconds: TimeInterval = 90,
+        standardInput: String? = nil,
+        disablesOperationLog: Bool = false,
+        disablesAuthentication: Bool = true,
+        extraEnvironment: [String: String] = [:],
+        onEvent: (@Sendable (MoleUpdateEvent) -> Void)? = nil
+    ) async throws -> CLIResult {
+        try await runStreaming(
+            executable.path,
+            arguments: arguments,
+            timeoutSeconds: timeoutSeconds,
+            standardInput: standardInput,
+            disablesOperationLog: disablesOperationLog,
+            disablesAuthentication: disablesAuthentication,
+            extraEnvironment: extraEnvironment,
+            onEvent: onEvent
         )
     }
 
@@ -505,7 +944,8 @@ actor LocalCLIBackend {
         timeoutSeconds: TimeInterval = 90,
         standardInput: String? = nil,
         disablesOperationLog: Bool = false,
-        disablesAuthentication: Bool = true
+        disablesAuthentication: Bool = true,
+        extraEnvironment: [String: String] = [:]
     ) async throws -> CLIResult {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -514,7 +954,8 @@ actor LocalCLIBackend {
             process.currentDirectoryURL = repositoryRoot
             process.environment = processEnvironment(
                 disablesOperationLog: disablesOperationLog,
-                disablesAuthentication: disablesAuthentication
+                disablesAuthentication: disablesAuthentication,
+                extraEnvironment: extraEnvironment
             )
             let stdin = Pipe()
             process.standardInput = stdin
@@ -578,6 +1019,82 @@ actor LocalCLIBackend {
                 }
             } catch {
                 state.finish(.failure(error))
+            }
+        }
+    }
+
+    private func runStreaming(
+        _ executable: String,
+        arguments: [String],
+        timeoutSeconds: TimeInterval = 90,
+        standardInput: String? = nil,
+        disablesOperationLog: Bool = false,
+        disablesAuthentication: Bool = true,
+        extraEnvironment: [String: String] = [:],
+        onEvent: (@Sendable (MoleUpdateEvent) -> Void)? = nil
+    ) async throws -> CLIResult {
+        try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(filePath: executable)
+            process.arguments = arguments
+            process.currentDirectoryURL = repositoryRoot
+            process.environment = processEnvironment(
+                disablesOperationLog: disablesOperationLog,
+                disablesAuthentication: disablesAuthentication,
+                extraEnvironment: extraEnvironment
+            )
+
+            let stdin = Pipe()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.standardInput = stdin
+            process.standardOutput = stdout
+            process.standardError = stderr
+            let state = StreamingProcessRunState(
+                continuation: continuation,
+                stdin: stdin,
+                stdout: stdout,
+                stderr: stderr,
+                onEvent: onEvent
+            )
+
+            stdout.fileHandleForReading.readabilityHandler = { handle in
+                state.append(handle.availableData, isError: false)
+            }
+            stderr.fileHandleForReading.readabilityHandler = { handle in
+                state.append(handle.availableData, isError: true)
+            }
+
+            process.terminationHandler = { process in
+                state.append(stdout.fileHandleForReading.availableData, isError: false)
+                state.append(stderr.fileHandleForReading.availableData, isError: true)
+
+                let result = state.readResult(exitCode: process.terminationStatus)
+                if process.terminationStatus == 0 {
+                    state.finish(.success(result))
+                } else {
+                    let message = result.stderr.isEmpty ? result.stdout : result.stderr
+                    state.finish(.failure(CLIError.commandFailed(message.trimmingCharacters(in: .whitespacesAndNewlines))))
+                }
+            }
+
+            do {
+                try process.run()
+                if let standardInput {
+                    stdin.fileHandleForWriting.write(Data(standardInput.utf8))
+                }
+                try? stdin.fileHandleForWriting.close()
+            } catch {
+                state.finish(.failure(error))
+                return
+            }
+
+            Task.detached {
+                try? await Task.sleep(for: .seconds(timeoutSeconds))
+                if process.isRunning {
+                    process.terminate()
+                    state.finish(.failure(CLIError.commandTimedOut("\(executable) \(arguments.joined(separator: " "))")))
+                }
             }
         }
     }
@@ -1281,12 +1798,14 @@ actor LocalCLIBackend {
 
     private func processEnvironment(
         disablesOperationLog: Bool = false,
-        disablesAuthentication: Bool = true
+        disablesAuthentication: Bool = true,
+        extraEnvironment: [String: String] = [:]
     ) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let defaultPath = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
+            "\(fileManager.homeDirectoryForCurrentUser.path)/.local/bin",
             "/usr/bin",
             "/bin",
             "/usr/sbin",
@@ -1307,6 +1826,9 @@ actor LocalCLIBackend {
         if disablesOperationLog {
             environment["MO_NO_OPLOG"] = "1"
         }
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
         return environment
     }
 
@@ -1314,6 +1836,7 @@ actor LocalCLIBackend {
         let paths = [
             "/opt/homebrew/bin/\(name)",
             "/usr/local/bin/\(name)",
+            "\(fileManager.homeDirectoryForCurrentUser.path)/.local/bin/\(name)",
             "/usr/bin/\(name)",
             "/bin/\(name)"
         ]

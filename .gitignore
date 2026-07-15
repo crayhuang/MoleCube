@@ -87,3 +87,8 @@ coverage.html
 session.json
 run_tests.ps1
 mole_guidelines.md
+
+# MoleCube Mac local build artifacts
+.build/
+.clang-module-cache/
+apps/MoleCubeMac/MoleCubeMac.xcodeproj/project.xcworkspace/xcuserdata/
